@@ -233,12 +233,74 @@ INDIAN_STOCKS = {
     ],
 }
 
+# ... (Keep existing INDIAN_STOCKS dictionary headers)
+
+# [EXISTING INDIAN_STOCKS DICTIONARY REMAINS UNCHANGED, I WILL REFERENCE IT IN THE FULL FILE UPDATE]
+# However, since I need to modify the code AFTER the dictionary to load the CSV, I will replace the end of the file.
+
+# ... [Assume INDIAN_STOCKS ends at line 234]
+
+import os
+import csv
+import logging
+
+logger = logging.getLogger(__name__)
+
 # Flatten all stocks into single list
 ALL_STOCKS = []
+seen_symbols = set()
+
+# 1. Add hardcoded stocks first (they have better sector data)
 for sector, stocks in INDIAN_STOCKS.items():
     for stock in stocks:
         stock['sector_code'] = sector
+        stock['symbol'] = stock['symbol'].upper() # Ensure uppercase
         ALL_STOCKS.append(stock)
+        seen_symbols.add(stock['symbol'])
+
+def load_csv_stocks():
+    """Load additional stocks from EQUITY_L.csv"""
+    csv_path = os.path.join(os.path.dirname(__file__), 'EQUITY_L.csv')
+    
+    if not os.path.exists(csv_path):
+        logger.warning(f"Stock CSV not found at {csv_path}")
+        return
+
+    try:
+        with open(csv_path, 'r') as f:
+            reader = csv.DictReader(f)
+            count = 0
+            for row in reader:
+                symbol = row.get('SYMBOL', '').strip().upper()
+                name = row.get('NAME OF COMPANY', '').strip()
+                
+                if symbol and symbol not in seen_symbols:
+                    # Add to "Others" or "General" sector
+                    stock_data = {
+                        "symbol": symbol,
+                        "name": name,
+                        "sector": "General / Unclassified", # Default
+                        "sector_code": "general"
+                    }
+                    
+                    # Add to ALL_STOCKS
+                    ALL_STOCKS.append(stock_data)
+                    seen_symbols.add(symbol)
+                    
+                    # Also add to INDIAN_STOCKS under 'general'
+                    if 'general' not in INDIAN_STOCKS:
+                        INDIAN_STOCKS['general'] = []
+                    INDIAN_STOCKS['general'].append(stock_data)
+                    
+                    count += 1
+            
+            logger.info(f"Loaded {count} additional stocks from CSV")
+            
+    except Exception as e:
+        logger.error(f"Error loading stock CSV: {e}")
+
+# Load stocks on module import
+load_csv_stocks()
 
 def get_all_stocks():
     """Return all stocks as flat list"""
@@ -252,11 +314,24 @@ def search_stocks(query: str):
     """Search stocks by symbol or name"""
     query = query.upper()
     results = []
+    
+    # Priority search: Exact match first
     for stock in ALL_STOCKS:
-        if query in stock['symbol'].upper() or query in stock['name'].upper():
+        if stock['symbol'] == query:
+            results.insert(0, stock)
+    
+    # Then partial matches
+    for stock in ALL_STOCKS:
+        if stock in results: continue # Skip if already added
+        
+        if query in stock['symbol'] or query in stock['name'].upper():
             results.append(stock)
+            if len(results) >= 20: 
+                break
+                
     return results[:20]  # Limit to 20 results
 
 def get_sectors():
     """Return list of all sectors"""
     return list(INDIAN_STOCKS.keys())
+
