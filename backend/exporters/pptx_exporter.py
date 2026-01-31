@@ -13,19 +13,19 @@ logger = logging.getLogger(__name__)
 # Try to import python-pptx
 from pptx import Presentation
 from pptx.util import Inches, Pt
-from pptx.dml.color import RgbColor
+from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
 PPTX_AVAILABLE = True
 
 # Color scheme
 COLORS = {
-    'primary': RgbColor(0x1a, 0x36, 0x5d),  # Dark blue
-    'secondary': RgbColor(0x38, 0xa1, 0x69),  # Green
-    'accent': RgbColor(0x66, 0x5d, 0xc3),  # Purple
-    'text': RgbColor(0x2d, 0x37, 0x48),  # Dark gray
-    'light': RgbColor(0xf7, 0xfa, 0xfc),  # Light gray
-    'white': RgbColor(0xff, 0xff, 0xff),
+    'primary': RGBColor(0x1a, 0x36, 0x5d),  # Dark blue
+    'secondary': RGBColor(0x38, 0xa1, 0x69),  # Green
+    'accent': RGBColor(0x66, 0x5d, 0xc3),  # Purple
+    'text': RGBColor(0x2d, 0x37, 0x48),  # Dark gray
+    'light': RGBColor(0xf7, 0xfa, 0xfc),  # Light gray
+    'white': RGBColor(0xff, 0xff, 0xff),
 }
 
 
