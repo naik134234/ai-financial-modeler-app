@@ -231,6 +231,32 @@ INDIAN_STOCKS = {
         {"symbol": "CROMPTON", "name": "Crompton Greaves Consumer", "sector": "Electrical Equipment"},
         {"symbol": "ORIENTELEC", "name": "Orient Electric", "sector": "Electrical Equipment"},
     ],
+
+    # US / GLOBAL TECH
+    "us_tech": [
+        {"symbol": "AAPL", "name": "Apple Inc.", "sector": "Technology", "country": "US"},
+        {"symbol": "MSFT", "name": "Microsoft Corporation", "sector": "Technology", "country": "US"},
+        {"symbol": "GOOGL", "name": "Alphabet Inc.", "sector": "Technology", "country": "US"},
+        {"symbol": "AMZN", "name": "Amazon.com Inc.", "sector": "Consumer Cyclical", "country": "US"},
+        {"symbol": "NVDA", "name": "NVIDIA Corporation", "sector": "Technology", "country": "US"},
+        {"symbol": "TSLA", "name": "Tesla Inc.", "sector": "Auto Manufacturers", "country": "US"},
+        {"symbol": "META", "name": "Meta Platforms Inc.", "sector": "Technology", "country": "US"},
+        {"symbol": "NFLX", "name": "Netflix Inc.", "sector": "Communication Services", "country": "US"},
+        {"symbol": "AMD", "name": "Advanced Micro Devices", "sector": "Technology", "country": "US"},
+        {"symbol": "INTC", "name": "Intel Corporation", "sector": "Technology", "country": "US"},
+    ],
+
+    # US / GLOBAL FINANCE & OTHERS
+    "us_general": [
+        {"symbol": "JPM", "name": "JPMorgan Chase & Co.", "sector": "Financial Services", "country": "US"},
+        {"symbol": "V", "name": "Visa Inc.", "sector": "Financial Services", "country": "US"},
+        {"symbol": "JNJ", "name": "Johnson & Johnson", "sector": "Healthcare", "country": "US"},
+        {"symbol": "WMT", "name": "Walmart Inc.", "sector": "Consumer Defensive", "country": "US"},
+        {"symbol": "PG", "name": "Procter & Gamble", "sector": "Consumer Defensive", "country": "US"},
+        {"symbol": "XOM", "name": "Exxon Mobil", "sector": "Energy", "country": "US"},
+        {"symbol": "KO", "name": "Coca-Cola Company", "sector": "Consumer Defensive", "country": "US"},
+        {"symbol": "DIS", "name": "Walt Disney Company", "sector": "Communication Services", "country": "US"},
+    ],
 }
 
 # ... (Keep existing INDIAN_STOCKS dictionary headers)
