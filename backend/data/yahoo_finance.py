@@ -1,42 +1,49 @@
-"""
-Yahoo Finance Data Fetcher
-Real-time stock data and multi-year historical financials
-"""
-
 import logging
-from typing import Dict, Any, Optional, List
+import requests
+import json
+from typing import Dict, Any, Optional, List, Union
 from datetime import datetime, timedelta
+import random
 
 logger = logging.getLogger(__name__)
 
-# Try to import yfinance
-try:
-    import yfinance as yf
-    YFINANCE_AVAILABLE = True
-except ImportError:
-    YFINANCE_AVAILABLE = False
-    logger.warning("yfinance not installed. Run: pip install yfinance")
+# Constants for Yahoo Finance API
+BASE_URL = "https://query1.finance.yahoo.com/v10/finance/quoteSummary/"
+CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/"
 
+# List of user agents to avoid rate limiting
+USER_AGENTS = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
+]
 
-# Backward compatibility class
+def _get_headers():
+    return {
+        'User-Agent': random.choice(USER_AGENTS),
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+    }
+
 class YahooFinanceCollector:
-    """Legacy class for backward compatibility"""
+    """Class to fetch data from Yahoo Finance without yfinance"""
     
     def __init__(self, symbol: str, exchange: str = "NSE"):
         self.symbol = symbol
         self.exchange = exchange
         self.ticker_symbol = f"{symbol}.NS" if exchange == "NSE" else f"{symbol}.BO"
-    
+        if '.' in symbol: # Already formatted
+            self.ticker_symbol = symbol
+            
     def get_data(self) -> Dict[str, Any]:
         """Get all available data for the symbol"""
-        info = get_stock_info(self.symbol)
-        financials = get_historical_financials(self.symbol)
-        price_history = get_price_history(self.symbol)
+        info = get_stock_info(self.ticker_symbol)
+        financials = get_historical_financials(self.ticker_symbol)
+        price_history = get_price_history(self.ticker_symbol)
         
-        # Use consistent key names that the generator expects
         return {
-            "company_info": info if info else {},  # Generator expects company_info
-            "info": info if info else {},  # Keep for backward compatibility
+            "company_info": info if info else {},
+            "info": info if info else {}, 
             "financials": financials if financials else {},
             "price_history": price_history if price_history else {},
             "income_statement": financials.get('income_statement', {}) if financials else {},
@@ -44,326 +51,253 @@ class YahooFinanceCollector:
             "cash_flow": financials.get('cash_flow', {}) if financials else {},
         }
 
-
 async def fetch_stock_data(symbol: str, exchange: str = "NSE") -> Dict[str, Any]:
-    """Fetch stock data from Yahoo Finance - async wrapper for backward compatibility"""
     collector = YahooFinanceCollector(symbol, exchange)
     return collector.get_data()
 
-
 def get_stock_info(symbol: str) -> Optional[Dict[str, Any]]:
-    """
-    Get basic stock information
-    
-    Args:
-        symbol: Stock symbol (e.g., 'RELIANCE.NS' for NSE stocks)
-    
-    Returns:
-        Dictionary with stock info
-    """
-    if not YFINANCE_AVAILABLE:
-        return None
-    
+    """Fetch basic stock info directly from Yahoo API"""
     try:
-        # Add .NS suffix for Indian stocks if not present
-        if not symbol.endswith(('.NS', '.BO')):
+        if not (symbol.endswith('.NS') or symbol.endswith('.BO')):
             symbol = f"{symbol}.NS"
-        
-        ticker = yf.Ticker(symbol)
-        info = ticker.info
-        
-        # Extract real company financial data
-        shares_outstanding_raw = info.get('sharesOutstanding', 0) or 0
-        shares_outstanding = shares_outstanding_raw / 10000000 if shares_outstanding_raw > 0 else 0  # Convert to Crores
-        
-        market_cap_raw = info.get('marketCap', 0) or 0
-        market_cap = market_cap_raw / 10000000 if market_cap_raw > 0 else 0  # Convert to Crores
-        
-        enterprise_value_raw = info.get('enterpriseValue', 0) or 0
-        enterprise_value = enterprise_value_raw / 10000000 if enterprise_value_raw > 0 else 0
-        
-        total_revenue_raw = info.get('totalRevenue', 0) or 0
-        total_revenue = total_revenue_raw / 10000000 if total_revenue_raw > 0 else 0
-        
-        ebitda_raw = info.get('ebitda', 0) or 0
-        ebitda = ebitda_raw / 10000000 if ebitda_raw > 0 else 0
-        
-        total_debt_raw = info.get('totalDebt', 0) or 0
-        total_debt = total_debt_raw / 10000000 if total_debt_raw > 0 else 0
-        
-        total_cash_raw = info.get('totalCash', 0) or 0
-        total_cash = total_cash_raw / 10000000 if total_cash_raw > 0 else 0
-        
-        free_cash_flow_raw = info.get('freeCashflow', 0) or 0
-        free_cash_flow = free_cash_flow_raw / 10000000 if free_cash_flow_raw > 0 else 0
-        
-        net_income_raw = info.get('netIncomeToCommon', 0) or 0
-        net_income = net_income_raw / 10000000 if net_income_raw else 0
-        
-        return {
-            # Basic info
-            "symbol": symbol.replace('.NS', '').replace('.BO', ''),
-            "name": info.get('longName', info.get('shortName', symbol)),
-            "sector": info.get('sector', 'Unknown'),
-            "industry": info.get('industry', 'Unknown'),
-            "website": info.get('website', ''),
-            "description": info.get('longBusinessSummary', ''),
             
-            # Market data (in Crores for Indian stocks)
-            "market_cap": market_cap,
-            "enterprise_value": enterprise_value,
-            "current_price": info.get('currentPrice', info.get('regularMarketPrice', 0)),
-            "52_week_high": info.get('fiftyTwoWeekHigh', 0),
-            "52_week_low": info.get('fiftyTwoWeekLow', 0),
-            "avg_volume": info.get('averageVolume', 0),
+        modules = "financialData,quoteType,summaryDetail,price,defaultKeyStatistics,summaryProfile"
+        url = f"{BASE_URL}{symbol}?modules={modules}"
+        
+        response = requests.get(url, headers=_get_headers(), timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        if 'quoteSummary' not in data or not data['quoteSummary']['result']:
+            return None
             
-            # Shares and ownership (REAL DATA)
-            "shares_outstanding": shares_outstanding,
-            "shares_outstanding_raw": shares_outstanding_raw,  # Raw value for verification
-            "float_shares": (info.get('floatShares', 0) or 0) / 10000000,
-            "held_percent_insiders": info.get('heldPercentInsiders', 0),
-            "held_percent_institutions": info.get('heldPercentInstitutions', 0),
-            
-            # Valuation ratios
-            "pe_ratio": info.get('trailingPE', 0) or 0,
-            "forward_pe": info.get('forwardPE', 0) or 0,
-            "pb_ratio": info.get('priceToBook', 0) or 0,
-            "ps_ratio": info.get('priceToSalesTrailing12Months', 0) or 0,
-            "ev_to_revenue": info.get('enterpriseToRevenue', 0) or 0,
-            "ev_to_ebitda": info.get('enterpriseToEbitda', 0) or 0,
-            "peg_ratio": info.get('pegRatio', 0) or 0,
-            
-            # Risk metrics
-            "beta": info.get('beta', 1.0) or 1.0,
-            
-            # Profitability (REAL DATA)
-            "profit_margin": info.get('profitMargins', 0) or 0,
-            "operating_margin": info.get('operatingMargins', 0) or 0,
-            "gross_margin": info.get('grossMargins', 0) or 0,
-            "ebitda_margin": (ebitda / total_revenue) if total_revenue > 0 else 0,
-            "return_on_equity": info.get('returnOnEquity', 0) or 0,
-            "return_on_assets": info.get('returnOnAssets', 0) or 0,
-            
-            # Financial data (in Crores - REAL DATA)
-            "total_revenue": total_revenue,
-            "revenue_growth": info.get('revenueGrowth', 0) or 0,
-            "ebitda": ebitda,
-            "net_income": net_income,
-            "total_debt": total_debt,
-            "total_cash": total_cash,
-            "free_cash_flow": free_cash_flow,
-            "book_value": (info.get('bookValue', 0) or 0),
-            "earnings_per_share": info.get('trailingEps', 0) or 0,
-            
-            # Dividend data
-            "dividend_yield": info.get('dividendYield', 0) or 0,
-            "dividend_rate": info.get('dividendRate', 0) or 0,
-            "payout_ratio": info.get('payoutRatio', 0) or 0,
-            
-            # Debt metrics
-            "debt_to_equity": info.get('debtToEquity', 0) or 0,
-            "current_ratio": info.get('currentRatio', 0) or 0,
-            "quick_ratio": info.get('quickRatio', 0) or 0,
-        }
-    except Exception as e:
-        logger.error(f"Error fetching stock info for {symbol}: {e}")
-        return None
+        result = data['quoteSummary']['result'][0]
+        
+        # Helper to safely get nested values
+        def get_v(module, key, default=0):
+            return result.get(module, {}).get(key, {}).get('raw', default)
 
+        # Map to common structure
+        info = {
+            "symbol": symbol.replace('.NS', '').replace('.BO', ''),
+            "name": result.get('price', {}).get('longName', symbol),
+            "sector": result.get('summaryProfile', {}).get('sector', 'Unknown'),
+            "industry": result.get('summaryProfile', {}).get('industry', 'Unknown'),
+            "website": result.get('summaryProfile', {}).get('website', ''),
+            "description": result.get('summaryProfile', {}).get('longBusinessSummary', ''),
+            
+            "market_cap": get_v('price', 'marketCap') / 10000000,
+            "enterprise_value": get_v('defaultKeyStatistics', 'enterpriseValue') / 10000000,
+            "current_price": get_v('financialData', 'currentPrice'),
+            "52_week_high": get_v('summaryDetail', 'fiftyTwoWeekHigh'),
+            "52_week_low": get_v('summaryDetail', 'fiftyTwoWeekLow'),
+            "avg_volume": get_v('summaryDetail', 'averageVolume'),
+            
+            "shares_outstanding": get_v('defaultKeyStatistics', 'sharesOutstanding') / 10000000,
+            "held_percent_insiders": get_v('defaultKeyStatistics', 'heldPercentInsiders'),
+            "held_percent_institutions": get_v('defaultKeyStatistics', 'heldPercentInstitutions'),
+            
+            "pe_ratio": get_v('summaryDetail', 'trailingPE'),
+            "forward_pe": get_v('summaryDetail', 'forwardPE'),
+            "pb_ratio": get_v('defaultKeyStatistics', 'priceToBook'),
+            "ps_ratio": get_v('summaryDetail', 'priceToSalesTrailing12Months'),
+            
+            "beta": get_v('defaultKeyStatistics', 'beta', 1.0),
+            
+            "profit_margin": get_v('financialData', 'profitMargins'),
+            "operating_margin": get_v('financialData', 'operatingMargins'),
+            "return_on_equity": get_v('financialData', 'returnOnEquity'),
+            "return_on_assets": get_v('financialData', 'returnOnAssets'),
+            
+            "total_revenue": get_v('financialData', 'totalRevenue') / 10000000,
+            "revenue_growth": get_v('financialData', 'revenueGrowth'),
+            "ebitda": get_v('financialData', 'ebitda') / 10000000,
+            "total_debt": get_v('financialData', 'totalDebt') / 10000000,
+            "total_cash": get_v('financialData', 'totalCash') / 10000000,
+            "free_cash_flow": get_v('financialData', 'freeCashflow') / 10000000,
+            "earnings_per_share": get_v('defaultKeyStatistics', 'trailingEps'),
+            
+            "dividend_yield": get_v('summaryDetail', 'dividendYield'),
+            "dividend_rate": get_v('summaryDetail', 'dividendRate'),
+            "debt_to_equity": get_v('financialData', 'debtToEquity'),
+            "current_ratio": get_v('financialData', 'currentRatio'),
+        }
+        return info
+    except Exception as e:
+        logger.error(f"Error in get_stock_info for {symbol}: {e}")
+        return None
 
 def get_historical_financials(symbol: str, years: int = 5) -> Optional[Dict[str, Any]]:
-    """
-    Get multi-year historical financial data
-    
-    Args:
-        symbol: Stock symbol
-        years: Number of years of historical data
-    
-    Returns:
-        Dictionary with historical financials
-    """
-    if not YFINANCE_AVAILABLE:
-        return None
-    
+    """Fetch historical financials from Yahoo API"""
     try:
-        if not symbol.endswith(('.NS', '.BO')):
+        if not (symbol.endswith('.NS') or symbol.endswith('.BO')):
             symbol = f"{symbol}.NS"
-        
-        ticker = yf.Ticker(symbol)
-        
-        # Get financial statements
-        income_stmt = ticker.income_stmt
-        balance_sheet = ticker.balance_sheet
-        cash_flow = ticker.cashflow
-        
-        # Process income statement
-        income_data = {}
-        if income_stmt is not None and not income_stmt.empty:
-            for col in income_stmt.columns[:years]:
-                year = col.year if hasattr(col, 'year') else str(col)[:4]
-                income_data[str(year)] = {
-                    "revenue": _get_value(income_stmt, col, ['Total Revenue', 'Revenue', 'Operating Revenue']),
-                    "gross_profit": _get_value(income_stmt, col, ['Gross Profit']),
-                    "ebitda": _get_value(income_stmt, col, ['EBITDA', 'Ebitda']),
-                    "operating_income": _get_value(income_stmt, col, ['Operating Income', 'EBIT']),
-                    "net_income": _get_value(income_stmt, col, ['Net Income', 'Net Income Common Stockholders']),
-                    "interest_expense": _get_value(income_stmt, col, ['Interest Expense']),
-                    "tax_expense": _get_value(income_stmt, col, ['Tax Provision', 'Income Tax Expense']),
-                }
-        
-        # Process balance sheet
-        balance_data = {}
-        if balance_sheet is not None and not balance_sheet.empty:
-            for col in balance_sheet.columns[:years]:
-                year = col.year if hasattr(col, 'year') else str(col)[:4]
-                balance_data[str(year)] = {
-                    "total_assets": _get_value(balance_sheet, col, ['Total Assets']),
-                    "total_liabilities": _get_value(balance_sheet, col, ['Total Liabilities Net Minority Interest', 'Total Liab']),
-                    "total_equity": _get_value(balance_sheet, col, ['Total Equity Gross Minority Interest', 'Stockholders Equity']),
-                    "cash": _get_value(balance_sheet, col, ['Cash And Cash Equivalents', 'Cash']),
-                    "total_debt": _get_value(balance_sheet, col, ['Total Debt', 'Long Term Debt']),
-                    "current_assets": _get_value(balance_sheet, col, ['Current Assets']),
-                    "current_liabilities": _get_value(balance_sheet, col, ['Current Liabilities']),
-                    "inventory": _get_value(balance_sheet, col, ['Inventory']),
-                    "receivables": _get_value(balance_sheet, col, ['Net Receivables', 'Accounts Receivable']),
-                    "payables": _get_value(balance_sheet, col, ['Accounts Payable']),
-                }
-        
-        # Process cash flow
-        cashflow_data = {}
-        if cash_flow is not None and not cash_flow.empty:
-            for col in cash_flow.columns[:years]:
-                year = col.year if hasattr(col, 'year') else str(col)[:4]
-                cashflow_data[str(year)] = {
-                    "operating_cash_flow": _get_value(cash_flow, col, ['Operating Cash Flow', 'Total Cash From Operating Activities']),
-                    "capex": abs(_get_value(cash_flow, col, ['Capital Expenditure', 'Capital Expenditures'])),
-                    "depreciation": _get_value(cash_flow, col, ['Depreciation And Amortization', 'Depreciation']),
-                    "free_cash_flow": _get_value(cash_flow, col, ['Free Cash Flow']),
-                }
-        
-        return {
-            "income_statement": income_data,
-            "balance_sheet": balance_data,
-            "cash_flow": cashflow_data,
-            "years_available": len(income_data),
-        }
-        
-    except Exception as e:
-        logger.error(f"Error fetching historical financials for {symbol}: {e}")
-        return None
 
+        modules = "incomeStatementHistory,balanceSheetHistory,cashflowStatementHistory"
+        url = f"{BASE_URL}{symbol}?modules={modules}"
+        
+        response = requests.get(url, headers=_get_headers(), timeout=15)
+        response.raise_for_status()
+        data = response.json()
+        
+        if 'quoteSummary' not in data or not data['quoteSummary']['result']:
+            return None
+            
+        result = data['quoteSummary']['result'][0]
+        
+        def parse_statement(module_name):
+            stmt_data = {}
+            history = result.get(module_name, {}).get(module_name.replace('History', 'Statements'), [])
+            for item in history:
+                date = item.get('endDate', {}).get('fmt', '')[:4]
+                if not date: continue
+                
+                vals = {}
+                for k, v in item.items():
+                    if isinstance(v, dict) and 'raw' in v:
+                        vals[k] = v['raw'] / 10000000 # To Crores
+                stmt_data[date] = vals
+            return stmt_data
+
+        income_stmt = parse_statement('incomeStatementHistory')
+        balance_sheet = parse_statement('balanceSheetHistory')
+        cash_flow = parse_statement('cashflowStatementHistory')
+        
+        # Normalize keys for the engine
+        normalized_income = {}
+        for yr, vals in income_stmt.items():
+            normalized_income[yr] = {
+                "revenue": vals.get('totalRevenue', 0),
+                "gross_profit": vals.get('grossProfit', 0),
+                "ebitda": vals.get('ebitda', 0),
+                "operating_income": vals.get('operatingIncome', 0),
+                "net_income": vals.get('netIncome', 0),
+                "interest_expense": vals.get('interestExpense', 0),
+                "tax_expense": vals.get('incomeTaxExpense', 0),
+            }
+
+        normalized_balance = {}
+        for yr, vals in balance_sheet.items():
+            normalized_balance[yr] = {
+                "total_assets": vals.get('totalAssets', 0),
+                "total_liabilities": vals.get('totalLiab', 0),
+                "total_equity": vals.get('totalStockholderEquity', 0),
+                "cash": vals.get('cash', 0),
+                "total_debt": vals.get('longTermDebt', 0) + vals.get('shortLongTermDebt', 0),
+                "current_assets": vals.get('totalCurrentAssets', 0),
+                "current_liabilities": vals.get('totalCurrentLiabilities', 0),
+            }
+
+        normalized_cash = {}
+        for yr, vals in cash_flow.items():
+            normalized_cash[yr] = {
+                "operating_cash_flow": vals.get('totalCashFromOperatingActivities', 0),
+                "capex": abs(vals.get('capitalExpenditures', 0)),
+                "depreciation": vals.get('depreciation', 0),
+                "free_cash_flow": vals.get('totalCashFromOperatingActivities', 0) + vals.get('capitalExpenditures', 0),
+            }
+
+        return {
+            "income_statement": normalized_income,
+            "balance_sheet": normalized_balance,
+            "cash_flow": normalized_cash,
+            "years_available": len(normalized_income),
+        }
+    except Exception as e:
+        logger.error(f"Error in get_historical_financials for {symbol}: {e}")
+        return None
 
 def get_price_history(symbol: str, period: str = "5y") -> Optional[Dict[str, Any]]:
-    """
-    Get historical price data
-    
-    Args:
-        symbol: Stock symbol
-        period: Time period (1y, 2y, 5y, 10y, max)
-    
-    Returns:
-        Dictionary with price history
-    """
-    if not YFINANCE_AVAILABLE:
-        return None
-    
+    """Fetch price history using Chart API"""
     try:
-        if not symbol.endswith(('.NS', '.BO')):
+        if not (symbol.endswith('.NS') or symbol.endswith('.BO')):
             symbol = f"{symbol}.NS"
+            
+        # Map period to YF range
+        range_map = {"1y": "1y", "2y": "2y", "5y": "5y", "10y": "10y", "max": "max"}
+        r = range_map.get(period, "5y")
         
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period=period)
+        url = f"{CHART_URL}{symbol}?range={r}&interval=1d"
+        response = requests.get(url, headers=_get_headers(), timeout=15)
+        response.raise_for_status()
+        data = response.json()
         
-        if hist.empty:
-            return None
+        chart = data.get('chart', {}).get('result', [{}])[0]
+        if not chart: return None
         
-        # Calculate returns
-        returns = hist['Close'].pct_change().dropna()
+        closes = chart.get('indicators', {}).get('quote', [{}])[0].get('close', [])
+        closes = [c for c in closes if c is not None]
+        
+        if not closes: return None
+        
+        returns = [(closes[i] / closes[i-1]) - 1 for i in range(1, len(closes))]
+        avg_ret = sum(returns) / len(returns) if returns else 0
+        std_ret = (sum([(x - avg_ret)**2 for x in returns]) / len(returns))**0.5 if returns else 0
         
         return {
-            "current_price": float(hist['Close'].iloc[-1]),
-            "start_price": float(hist['Close'].iloc[0]),
-            "high": float(hist['High'].max()),
-            "low": float(hist['Low'].min()),
-            "avg_volume": float(hist['Volume'].mean()),
-            "total_return": float((hist['Close'].iloc[-1] / hist['Close'].iloc[0]) - 1),
-            "annualized_return": float(returns.mean() * 252),
-            "volatility": float(returns.std() * (252 ** 0.5)),
-            "sharpe_ratio": float((returns.mean() * 252 - 0.07) / (returns.std() * (252 ** 0.5))) if returns.std() > 0 else 0,
+            "current_price": closes[-1],
+            "start_price": closes[0],
+            "high": max(closes),
+            "low": min(closes),
+            "total_return": (closes[-1] / closes[0]) - 1,
+            "annualized_return": avg_ret * 252,
+            "volatility": std_ret * (252 ** 0.5),
+            "sharpe_ratio": (avg_ret * 252 - 0.07) / (std_ret * (252 ** 0.5)) if std_ret > 0 else 0,
         }
-        
     except Exception as e:
-        logger.error(f"Error fetching price history for {symbol}: {e}")
+        logger.error(f"Error in get_price_history for {symbol}: {e}")
         return None
-
 
 def get_peer_comparison(symbol: str, peers: Optional[List[str]] = None) -> Optional[List[Dict[str, Any]]]:
-    """
-    Get comparison data for peer companies
+    """Fetch peer data using multiple API calls"""
+    if not peers:
+        peers = []
     
-    Args:
-        symbol: Main stock symbol
-        peers: List of peer symbols (auto-detected if not provided)
-    
-    Returns:
-        List of dictionaries with peer comparison data
-    """
-    if not YFINANCE_AVAILABLE:
-        return None
-    
-    try:
-        if not symbol.endswith(('.NS', '.BO')):
-            symbol = f"{symbol}.NS"
-        
-        # Get main stock info for sector
-        main_ticker = yf.Ticker(symbol)
-        main_info = main_ticker.info
-        
-        # If no peers provided, try to find them (limited without a database)
-        if not peers:
-            # Return just the main company for now
-            peers = []
-        
-        results = []
-        
-        # Add main company
+    results = []
+    # Add main company
+    main_info = get_stock_info(symbol)
+    if main_info:
         results.append({
-            "symbol": symbol.replace('.NS', ''),
-            "name": main_info.get('shortName', symbol),
-            "market_cap": main_info.get('marketCap', 0) / 10000000,
-            "pe_ratio": main_info.get('trailingPE', 0),
-            "pb_ratio": main_info.get('priceToBook', 0),
-            "roe": main_info.get('returnOnEquity', 0) * 100 if main_info.get('returnOnEquity') else 0,
-            "debt_equity": main_info.get('debtToEquity', 0) / 100 if main_info.get('debtToEquity') else 0,
+            "symbol": main_info["symbol"],
+            "name": main_info["name"],
+            "market_cap": main_info["market_cap"],
+            "pe_ratio": main_info["pe_ratio"],
+            "pb_ratio": main_info["pb_ratio"],
+            "roe": main_info["return_on_equity"] * 100,
             "is_main": True,
         })
-        
-        # Add peers
-        for peer in peers:
-            try:
-                if not peer.endswith(('.NS', '.BO')):
-                    peer = f"{peer}.NS"
-                
-                peer_ticker = yf.Ticker(peer)
-                peer_info = peer_ticker.info
-                
-                results.append({
-                    "symbol": peer.replace('.NS', ''),
-                    "name": peer_info.get('shortName', peer),
-                    "market_cap": peer_info.get('marketCap', 0) / 10000000,
-                    "pe_ratio": peer_info.get('trailingPE', 0),
-                    "pb_ratio": peer_info.get('priceToBook', 0),
-                    "roe": peer_info.get('returnOnEquity', 0) * 100 if peer_info.get('returnOnEquity') else 0,
-                    "debt_equity": peer_info.get('debtToEquity', 0) / 100 if peer_info.get('debtToEquity') else 0,
-                    "is_main": False,
-                })
-            except Exception:
-                continue
-        
-        return results
-        
-    except Exception as e:
-        logger.error(f"Error fetching peer comparison for {symbol}: {e}")
-        return None
+    
+    for p in peers:
+        p_info = get_stock_info(p)
+        if p_info:
+            results.append({
+                "symbol": p_info["symbol"],
+                "name": p_info["name"],
+                "market_cap": p_info["market_cap"],
+                "pe_ratio": p_info["pe_ratio"],
+                "pb_ratio": p_info["pb_ratio"],
+                "roe": p_info["return_on_equity"] * 100,
+                "is_main": False,
+            })
+    return results
+
+def search_stocks(query: str, limit: int = 10) -> List[Dict[str, str]]:
+    """Simple offline search for common Indian stocks"""
+    common_stocks = [
+        {"symbol": "RELIANCE", "name": "Reliance Industries Ltd"},
+        {"symbol": "TCS", "name": "Tata Consultancy Services"},
+        {"symbol": "HDFCBANK", "name": "HDFC Bank Ltd"},
+        {"symbol": "INFY", "name": "Infosys Ltd"},
+        {"symbol": "ICICIBANK", "name": "ICICI Bank Ltd"},
+        {"symbol": "HINDUNILVR", "name": "Hindustan Unilever Ltd"},
+        {"symbol": "SBIN", "name": "State Bank of India"},
+        {"symbol": "BHARTIARTL", "name": "Bharti Airtel Ltd"},
+        {"symbol": "ITC", "name": "ITC Ltd"},
+        {"symbol": "WIPRO", "name": "Wipro Ltd"},
+        {"symbol": "ADANIPOWER", "name": "Adani Power"},
+    ]
+    query_lower = query.lower()
+    return [s for s in common_stocks if query_lower in s["symbol"].lower() or query_lower in s["name"].lower()][:limit]
 
 
 def _get_value(df, col, possible_keys: List[str]) -> float:
