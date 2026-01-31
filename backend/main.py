@@ -921,43 +921,54 @@ async def export_to_pptx(job_id: str):
 
 @app.post("/api/model/preview-excel")
 async def preview_excel(file: UploadFile = File(...)):
-    """Preview uploaded Excel file data before processing"""
+    """Preview uploaded Excel file data before processing using openpyxl"""
     try:
-        import pandas as pd
         import io
+        import openpyxl
         
         contents = await file.read()
         
-        # Read Excel file
-        df = pd.read_excel(io.BytesIO(contents), sheet_name=None)
+        # Read Excel file using openpyxl
+        wb = openpyxl.load_workbook(io.BytesIO(contents), data_only=True)
         
         preview_data = {
             "filename": file.filename,
-            "sheets": list(df.keys()),
+            "sheets": wb.sheetnames,
             "data": {}
         }
         
         # Extract key financial data from sheets
-        for sheet_name, sheet_df in df.items():
+        for sheet_name in wb.sheetnames:
             sheet_lower = sheet_name.lower()
+            sheet = wb[sheet_name]
             
+            # Helper to get first 5 rows and 5 columns
+            rows = list(sheet.iter_rows(min_row=1, max_row=6, min_col=1, max_col=5, values_only=True))
+            if not rows:
+                continue
+                
+            headers = [str(cell) if cell is not None else f"Col{i}" for i, cell in enumerate(rows[0])]
+            data_rows = []
+            for row in rows[1:]:
+                row_dict = {}
+                for i, cell in enumerate(row):
+                    if i < len(headers):
+                        row_dict[headers[i]] = cell
+                data_rows.append(row_dict)
+
+            key = None
             if 'income' in sheet_lower or 'p&l' in sheet_lower or 'profit' in sheet_lower:
-                preview_data["data"]["income_statement"] = {
-                    "rows": len(sheet_df),
-                    "columns": list(sheet_df.columns[:5]),
-                    "sample": sheet_df.head(5).to_dict('records') if len(sheet_df) > 0 else []
-                }
+                key = "income_statement"
             elif 'balance' in sheet_lower:
-                preview_data["data"]["balance_sheet"] = {
-                    "rows": len(sheet_df),
-                    "columns": list(sheet_df.columns[:5]),
-                    "sample": sheet_df.head(5).to_dict('records') if len(sheet_df) > 0 else []
-                }
+                key = "balance_sheet"
             elif 'cash' in sheet_lower:
-                preview_data["data"]["cash_flow"] = {
-                    "rows": len(sheet_df),
-                    "columns": list(sheet_df.columns[:5]),
-                    "sample": sheet_df.head(5).to_dict('records') if len(sheet_df) > 0 else []
+                key = "cash_flow"
+            
+            if key:
+                preview_data["data"][key] = {
+                    "rows": sheet.max_row,
+                    "columns": headers,
+                    "sample": data_rows
                 }
         
         return preview_data

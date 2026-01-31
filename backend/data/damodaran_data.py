@@ -5,13 +5,13 @@ Source: https://pages.stern.nyu.edu/~adamodar/
 """
 
 import logging
-import pandas as pd
 import requests
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, Union
 from io import BytesIO
 import os
 from datetime import datetime, timedelta
 import json
+import xlrd
 
 logger = logging.getLogger(__name__)
 
@@ -68,16 +68,15 @@ def _is_cache_valid(cache_path: str) -> bool:
     return datetime.now() - mod_time < timedelta(days=CACHE_EXPIRY_DAYS)
 
 
-def _fetch_excel_data(url: str, dataset_name: str) -> Optional[pd.DataFrame]:
-    """Fetch Excel data from Damodaran's website"""
+def _fetch_excel_data(url: str, dataset_name: str) -> List[List[Any]]:
+    """Fetch Excel data from Damodaran's website using xlrd"""
     cache_path = _get_cache_path(dataset_name)
     
     # Try cache first
     if _is_cache_valid(cache_path):
         try:
             with open(cache_path, 'r') as f:
-                data = json.load(f)
-                return pd.DataFrame(data)
+                return json.load(f)
         except Exception:
             pass
     
@@ -87,37 +86,38 @@ def _fetch_excel_data(url: str, dataset_name: str) -> Optional[pd.DataFrame]:
         response = requests.get(url, timeout=30)
         response.raise_for_status()
         
-        # Read Excel file
-        df = pd.read_excel(BytesIO(response.content), engine='xlrd')
+        # Read Excel file using xlrd
+        workbook = xlrd.open_workbook(file_contents=response.content)
+        sheet = workbook.sheet_by_index(0)
+        
+        data = []
+        for row_idx in range(sheet.nrows):
+            row = []
+            for col_idx in range(sheet.ncols):
+                row.append(sheet.cell_value(row_idx, col_idx))
+            data.append(row)
         
         # Cache the data
         try:
-            df.to_json(cache_path, orient='records')
+            with open(cache_path, 'w') as f:
+                json.dump(data, f)
         except Exception as e:
             logger.warning(f"Could not cache {dataset_name}: {e}")
         
-        return df
+        return data
         
     except Exception as e:
         logger.error(f"Error fetching {dataset_name}: {e}")
-        return None
+        return []
 
 
 def get_industry_beta(industry: str) -> Dict[str, float]:
     """
     Get industry beta data from Damodaran
-    
-    Returns:
-        {
-            "unlevered_beta": float,
-            "levered_beta": float,
-            "correlation": float,
-            "std_dev": float,
-        }
     """
-    df = _fetch_excel_data(DAMODARAN_URLS["beta_india"], "beta_india")
+    rows = _fetch_excel_data(DAMODARAN_URLS["beta_india"], "beta_india")
     
-    if df is None or df.empty:
+    if not rows:
         # Fallback defaults
         return {
             "unlevered_beta": 0.85,
@@ -130,23 +130,28 @@ def get_industry_beta(industry: str) -> Dict[str, float]:
     industry_lower = industry.lower()
     matched = None
     
-    for _, row in df.iterrows():
-        row_industry = str(row.iloc[0]).lower() if pd.notna(row.iloc[0]) else ""
+    # Skip potential header rows (check if first cell looks like an industry)
+    for row in rows:
+        if not row or len(row) < 1: continue
+        row_industry = str(row[0]).lower() if row[0] is not None else ""
         if industry_lower in row_industry or row_industry in industry_lower:
             matched = row
             break
     
     if matched is None:
-        # Use market average (first or last row typically)
-        matched = df.iloc[-1] if len(df) > 0 else None
+        # Use market average (typically the last or second to last row)
+        matched = rows[-1] if rows else None
     
     if matched is not None:
         try:
+            # Indices for betaIndia.xls:
+            # 0: Industry, 1: Number of firms, 2: Average beta, 3: Correlation with market, 
+            # 5: Unlevered beta, 7: Levered beta
             return {
-                "unlevered_beta": float(matched.iloc[5]) if pd.notna(matched.iloc[5]) else 0.85,
-                "levered_beta": float(matched.iloc[7]) if pd.notna(matched.iloc[7]) else 1.0,
-                "correlation": float(matched.iloc[3]) if pd.notna(matched.iloc[3]) else 0.25,
-                "std_dev": float(matched.iloc[2]) if pd.notna(matched.iloc[2]) else 0.40,
+                "unlevered_beta": float(matched[5]) if len(matched) > 5 and matched[5] != '' else 0.85,
+                "levered_beta": float(matched[7]) if len(matched) > 7 and matched[7] != '' else 1.0,
+                "correlation": float(matched[3]) if len(matched) > 3 and matched[3] != '' else 0.25,
+                "std_dev": float(matched[2]) if len(matched) > 2 and matched[2] != '' else 0.40,
             }
         except (IndexError, ValueError):
             pass
@@ -162,18 +167,10 @@ def get_industry_beta(industry: str) -> Dict[str, float]:
 def get_industry_wacc(industry: str) -> Dict[str, float]:
     """
     Get industry WACC components from Damodaran
-    
-    Returns:
-        {
-            "cost_of_equity": float,
-            "cost_of_debt": float,
-            "wacc": float,
-            "debt_ratio": float,
-        }
     """
-    df = _fetch_excel_data(DAMODARAN_URLS["wacc_india"], "wacc_india")
+    rows = _fetch_excel_data(DAMODARAN_URLS["wacc_india"], "wacc_india")
     
-    if df is None or df.empty:
+    if not rows:
         return {
             "cost_of_equity": 0.14,
             "cost_of_debt": 0.09,
@@ -184,22 +181,23 @@ def get_industry_wacc(industry: str) -> Dict[str, float]:
     industry_lower = industry.lower()
     matched = None
     
-    for _, row in df.iterrows():
-        row_industry = str(row.iloc[0]).lower() if pd.notna(row.iloc[0]) else ""
+    for row in rows:
+        if not row or len(row) < 1: continue
+        row_industry = str(row[0]).lower() if row[0] is not None else ""
         if industry_lower in row_industry or row_industry in industry_lower:
             matched = row
             break
     
     if matched is None:
-        matched = df.iloc[-1] if len(df) > 0 else None
+        matched = rows[-1] if rows else None
     
     if matched is not None:
         try:
             return {
-                "cost_of_equity": float(matched.iloc[6]) if pd.notna(matched.iloc[6]) else 0.14,
-                "cost_of_debt": float(matched.iloc[7]) if pd.notna(matched.iloc[7]) else 0.09,
-                "wacc": float(matched.iloc[8]) if pd.notna(matched.iloc[8]) else 0.11,
-                "debt_ratio": float(matched.iloc[4]) if pd.notna(matched.iloc[4]) else 0.25,
+                "cost_of_equity": float(matched[6]) if len(matched) > 6 and matched[6] != '' else 0.14,
+                "cost_of_debt": float(matched[7]) if len(matched) > 7 and matched[7] != '' else 0.09,
+                "wacc": float(matched[8]) if len(matched) > 8 and matched[8] != '' else 0.11,
+                "debt_ratio": float(matched[4]) if len(matched) > 4 and matched[4] != '' else 0.25,
             }
         except (IndexError, ValueError):
             pass
@@ -215,19 +213,10 @@ def get_industry_wacc(industry: str) -> Dict[str, float]:
 def get_industry_margins(industry: str) -> Dict[str, float]:
     """
     Get industry profit margins from Damodaran
-    
-    Returns:
-        {
-            "gross_margin": float,
-            "ebitda_margin": float,
-            "operating_margin": float,
-            "net_margin": float,
-            "pre_tax_margin": float,
-        }
     """
-    df = _fetch_excel_data(DAMODARAN_URLS["margin_india"], "margin_india")
+    rows = _fetch_excel_data(DAMODARAN_URLS["margin_india"], "margin_india")
     
-    if df is None or df.empty:
+    if not rows:
         return {
             "gross_margin": 0.35,
             "ebitda_margin": 0.18,
@@ -239,23 +228,24 @@ def get_industry_margins(industry: str) -> Dict[str, float]:
     industry_lower = industry.lower()
     matched = None
     
-    for _, row in df.iterrows():
-        row_industry = str(row.iloc[0]).lower() if pd.notna(row.iloc[0]) else ""
+    for row in rows:
+        if not row or len(row) < 1: continue
+        row_industry = str(row[0]).lower() if row[0] is not None else ""
         if industry_lower in row_industry or row_industry in industry_lower:
             matched = row
             break
     
     if matched is None:
-        matched = df.iloc[-1] if len(df) > 0 else None
+        matched = rows[-1] if rows else None
     
     if matched is not None:
         try:
             return {
-                "gross_margin": float(matched.iloc[1]) if pd.notna(matched.iloc[1]) else 0.35,
-                "ebitda_margin": float(matched.iloc[3]) if pd.notna(matched.iloc[3]) else 0.18,
-                "operating_margin": float(matched.iloc[4]) if pd.notna(matched.iloc[4]) else 0.15,
-                "net_margin": float(matched.iloc[6]) if pd.notna(matched.iloc[6]) else 0.10,
-                "pre_tax_margin": float(matched.iloc[5]) if pd.notna(matched.iloc[5]) else 0.12,
+                "gross_margin": float(matched[1]) if len(matched) > 1 and matched[1] != '' else 0.35,
+                "ebitda_margin": float(matched[3]) if len(matched) > 3 and matched[3] != '' else 0.18,
+                "operating_margin": float(matched[4]) if len(matched) > 4 and matched[4] != '' else 0.15,
+                "net_margin": float(matched[6]) if len(matched) > 6 and matched[6] != '' else 0.10,
+                "pre_tax_margin": float(matched[5]) if len(matched) > 5 and matched[5] != '' else 0.12,
             }
         except (IndexError, ValueError):
             pass
@@ -272,18 +262,10 @@ def get_industry_margins(industry: str) -> Dict[str, float]:
 def get_industry_capex(industry: str) -> Dict[str, float]:
     """
     Get industry capex and reinvestment data from Damodaran
-    
-    Returns:
-        {
-            "capex_to_sales": float,
-            "capex_to_depreciation": float,
-            "reinvestment_rate": float,
-            "sales_to_capital": float,
-        }
     """
-    df = _fetch_excel_data(DAMODARAN_URLS["capex_india"], "capex_india")
+    rows = _fetch_excel_data(DAMODARAN_URLS["capex_india"], "capex_india")
     
-    if df is None or df.empty:
+    if not rows:
         return {
             "capex_to_sales": 0.06,
             "capex_to_depreciation": 1.5,
@@ -294,22 +276,23 @@ def get_industry_capex(industry: str) -> Dict[str, float]:
     industry_lower = industry.lower()
     matched = None
     
-    for _, row in df.iterrows():
-        row_industry = str(row.iloc[0]).lower() if pd.notna(row.iloc[0]) else ""
+    for row in rows:
+        if not row or len(row) < 1: continue
+        row_industry = str(row[0]).lower() if row[0] is not None else ""
         if industry_lower in row_industry or row_industry in industry_lower:
             matched = row
             break
     
     if matched is None:
-        matched = df.iloc[-1] if len(df) > 0 else None
+        matched = rows[-1] if rows else None
     
     if matched is not None:
         try:
             return {
-                "capex_to_sales": float(matched.iloc[2]) if pd.notna(matched.iloc[2]) else 0.06,
-                "capex_to_depreciation": float(matched.iloc[3]) if pd.notna(matched.iloc[3]) else 1.5,
-                "reinvestment_rate": float(matched.iloc[5]) if pd.notna(matched.iloc[5]) else 0.40,
-                "sales_to_capital": float(matched.iloc[6]) if pd.notna(matched.iloc[6]) else 1.2,
+                "capex_to_sales": float(matched[2]) if len(matched) > 2 and matched[2] != '' else 0.06,
+                "capex_to_depreciation": float(matched[3]) if len(matched) > 3 and matched[3] != '' else 1.5,
+                "reinvestment_rate": float(matched[5]) if len(matched) > 5 and matched[5] != '' else 0.40,
+                "sales_to_capital": float(matched[6]) if len(matched) > 6 and matched[6] != '' else 1.2,
             }
         except (IndexError, ValueError):
             pass
@@ -325,18 +308,10 @@ def get_industry_capex(industry: str) -> Dict[str, float]:
 def get_industry_multiples(industry: str) -> Dict[str, float]:
     """
     Get industry valuation multiples from Damodaran
-    
-    Returns:
-        {
-            "pe_ratio": float,
-            "pb_ratio": float,
-            "ev_ebitda": float,
-            "ev_sales": float,
-        }
     """
-    pe_df = _fetch_excel_data(DAMODARAN_URLS["pe_india"], "pe_india")
-    pbv_df = _fetch_excel_data(DAMODARAN_URLS["pbv_india"], "pbv_india")
-    evebitda_df = _fetch_excel_data(DAMODARAN_URLS["evebitda_india"], "evebitda_india")
+    pe_rows = _fetch_excel_data(DAMODARAN_URLS["pe_india"], "pe_india")
+    pbv_rows = _fetch_excel_data(DAMODARAN_URLS["pbv_india"], "pbv_india")
+    evebitda_rows = _fetch_excel_data(DAMODARAN_URLS["evebitda_india"], "evebitda_india")
     
     result = {
         "pe_ratio": 20.0,
@@ -348,34 +323,37 @@ def get_industry_multiples(industry: str) -> Dict[str, float]:
     industry_lower = industry.lower()
     
     # P/E Ratio
-    if pe_df is not None and not pe_df.empty:
-        for _, row in pe_df.iterrows():
-            row_industry = str(row.iloc[0]).lower() if pd.notna(row.iloc[0]) else ""
+    if pe_rows:
+        for row in pe_rows:
+            if not row or len(row) < 1: continue
+            row_industry = str(row[0]).lower() if row[0] is not None else ""
             if industry_lower in row_industry or row_industry in industry_lower:
                 try:
-                    result["pe_ratio"] = float(row.iloc[3]) if pd.notna(row.iloc[3]) else 20.0
+                    result["pe_ratio"] = float(row[3]) if len(row) > 3 and row[3] != '' else 20.0
                 except (IndexError, ValueError):
                     pass
                 break
     
     # P/B Ratio
-    if pbv_df is not None and not pbv_df.empty:
-        for _, row in pbv_df.iterrows():
-            row_industry = str(row.iloc[0]).lower() if pd.notna(row.iloc[0]) else ""
+    if pbv_rows:
+        for row in pbv_rows:
+            if not row or len(row) < 1: continue
+            row_industry = str(row[0]).lower() if row[0] is not None else ""
             if industry_lower in row_industry or row_industry in industry_lower:
                 try:
-                    result["pb_ratio"] = float(row.iloc[1]) if pd.notna(row.iloc[1]) else 2.5
+                    result["pb_ratio"] = float(row[1]) if len(row) > 1 and row[1] != '' else 2.5
                 except (IndexError, ValueError):
                     pass
                 break
     
     # EV/EBITDA
-    if evebitda_df is not None and not evebitda_df.empty:
-        for _, row in evebitda_df.iterrows():
-            row_industry = str(row.iloc[0]).lower() if pd.notna(row.iloc[0]) else ""
+    if evebitda_rows:
+        for row in evebitda_rows:
+            if not row or len(row) < 1: continue
+            row_industry = str(row[0]).lower() if row[0] is not None else ""
             if industry_lower in row_industry or row_industry in industry_lower:
                 try:
-                    result["ev_ebitda"] = float(row.iloc[1]) if pd.notna(row.iloc[1]) else 12.0
+                    result["ev_ebitda"] = float(row[1]) if len(row) > 1 and row[1] != '' else 12.0
                 except (IndexError, ValueError):
                     pass
                 break
@@ -386,18 +364,10 @@ def get_industry_multiples(industry: str) -> Dict[str, float]:
 def get_industry_growth(industry: str) -> Dict[str, float]:
     """
     Get industry historical growth rates from Damodaran
-    
-    Returns:
-        {
-            "revenue_growth_1y": float,
-            "revenue_growth_5y": float,
-            "eps_growth_5y": float,
-            "expected_growth": float,
-        }
     """
-    df = _fetch_excel_data(DAMODARAN_URLS["growth_india"], "growth_india")
+    rows = _fetch_excel_data(DAMODARAN_URLS["growth_india"], "growth_india")
     
-    if df is None or df.empty:
+    if not rows:
         return {
             "revenue_growth_1y": 0.10,
             "revenue_growth_5y": 0.12,
@@ -408,22 +378,23 @@ def get_industry_growth(industry: str) -> Dict[str, float]:
     industry_lower = industry.lower()
     matched = None
     
-    for _, row in df.iterrows():
-        row_industry = str(row.iloc[0]).lower() if pd.notna(row.iloc[0]) else ""
+    for row in rows:
+        if not row or len(row) < 1: continue
+        row_industry = str(row[0]).lower() if row[0] is not None else ""
         if industry_lower in row_industry or row_industry in industry_lower:
             matched = row
             break
     
     if matched is None:
-        matched = df.iloc[-1] if len(df) > 0 else None
+        matched = rows[-1] if rows else None
     
     if matched is not None:
         try:
             return {
-                "revenue_growth_1y": float(matched.iloc[1]) if pd.notna(matched.iloc[1]) else 0.10,
-                "revenue_growth_5y": float(matched.iloc[3]) if pd.notna(matched.iloc[3]) else 0.12,
-                "eps_growth_5y": float(matched.iloc[5]) if pd.notna(matched.iloc[5]) else 0.15,
-                "expected_growth": float(matched.iloc[6]) if pd.notna(matched.iloc[6]) else 0.12,
+                "revenue_growth_1y": float(matched[1]) if len(matched) > 1 and matched[1] != '' else 0.10,
+                "revenue_growth_5y": float(matched[3]) if len(matched) > 3 and matched[3] != '' else 0.12,
+                "eps_growth_5y": float(matched[5]) if len(matched) > 5 and matched[5] != '' else 0.15,
+                "expected_growth": float(matched[6]) if len(matched) > 6 and matched[6] != '' else 0.12,
             }
         except (IndexError, ValueError):
             pass
@@ -439,16 +410,8 @@ def get_industry_growth(industry: str) -> Dict[str, float]:
 def get_india_erp() -> Dict[str, float]:
     """
     Get India-specific equity risk premium from Damodaran
-    
-    Returns:
-        {
-            "risk_free_rate": float,
-            "equity_risk_premium": float,
-            "country_risk_premium": float,
-            "total_erp": float,
-        }
     """
-    df = _fetch_excel_data(DAMODARAN_URLS["country_erp"], "country_erp")
+    rows = _fetch_excel_data(DAMODARAN_URLS["country_erp"], "country_erp")
     
     # India-specific defaults based on Damodaran's typical estimates
     result = {
@@ -458,17 +421,18 @@ def get_india_erp() -> Dict[str, float]:
         "total_erp": 0.07,  # Total ERP for India
     }
     
-    if df is not None and not df.empty:
-        for _, row in df.iterrows():
-            country = str(row.iloc[0]).lower() if pd.notna(row.iloc[0]) else ""
+    if rows:
+        for row in rows:
+            if not row or len(row) < 1: continue
+            country = str(row[0]).lower() if row[0] is not None else ""
             if "india" in country:
                 try:
                     # Country risk premium
-                    if pd.notna(row.iloc[4]):
-                        result["country_risk_premium"] = float(row.iloc[4])
+                    if len(row) > 4 and row[4] != '':
+                        result["country_risk_premium"] = float(row[4])
                     # Total ERP
-                    if pd.notna(row.iloc[5]):
-                        result["total_erp"] = float(row.iloc[5])
+                    if len(row) > 5 and row[5] != '':
+                        result["total_erp"] = float(row[5])
                 except (IndexError, ValueError):
                     pass
                 break
@@ -478,14 +442,15 @@ def get_india_erp() -> Dict[str, float]:
 
 def get_india_tax_rate() -> float:
     """Get India corporate tax rate from Damodaran"""
-    df = _fetch_excel_data(DAMODARAN_URLS["country_tax"], "country_tax")
+    rows = _fetch_excel_data(DAMODARAN_URLS["country_tax"], "country_tax")
     
-    if df is not None and not df.empty:
-        for _, row in df.iterrows():
-            country = str(row.iloc[0]).lower() if pd.notna(row.iloc[0]) else ""
+    if rows:
+        for row in rows:
+            if not row or len(row) < 1: continue
+            country = str(row[0]).lower() if row[0] is not None else ""
             if "india" in country:
                 try:
-                    return float(row.iloc[1]) if pd.notna(row.iloc[1]) else 0.25
+                    return float(row[1]) if len(row) > 1 and row[1] != '' else 0.25
                 except (IndexError, ValueError):
                     pass
     
@@ -495,12 +460,6 @@ def get_india_tax_rate() -> float:
 def get_all_industry_data(industry: str) -> Dict[str, Any]:
     """
     Get all Damodaran data for an industry in one call
-    
-    Args:
-        industry: Industry name (e.g., "Oil/Gas", "Banking", "Computers/Software")
-    
-    Returns:
-        Complete dictionary with all industry assumptions
     """
     beta = get_industry_beta(industry)
     wacc = get_industry_wacc(industry)
@@ -566,9 +525,9 @@ def list_available_industries() -> List[str]:
     """
     Get list of industries available in Damodaran's data
     """
-    df = _fetch_excel_data(DAMODARAN_URLS["beta_india"], "beta_india")
+    rows = _fetch_excel_data(DAMODARAN_URLS["beta_india"], "beta_india")
     
-    if df is None or df.empty:
+    if not rows:
         # Return common industries
         return [
             "Oil/Gas (Production and Exploration)",
@@ -584,9 +543,10 @@ def list_available_industries() -> List[str]:
         ]
     
     industries = []
-    for _, row in df.iterrows():
-        industry = row.iloc[0]
-        if pd.notna(industry) and isinstance(industry, str) and len(industry) > 2:
+    for row in rows:
+        if not row or len(row) < 1: continue
+        industry = row[0]
+        if industry and isinstance(industry, str) and len(industry) > 2:
             industries.append(industry)
     
     return industries[1:-1] if len(industries) > 2 else industries  # Skip header/total rows

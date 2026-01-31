@@ -6,7 +6,6 @@ Supports both API mode (with API key) and web scraping fallback
 
 import requests
 from bs4 import BeautifulSoup
-import pandas as pd
 from typing import Dict, Any, List, Optional
 import logging
 import re
