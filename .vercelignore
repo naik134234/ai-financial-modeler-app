@@ -1,0 +1,20 @@
+# Vercel Ignore File
+# Exclude large local directories
+backend/venv
+backend/__pycache__
+backend/output
+backend/data_cache
+frontend/node_modules
+node_modules
+.next
+.git
+env
+.env
+*.db
+*.xlsx
+*.pptx
+*.pdf
+test_*.py
+*.log
+tmp
+temp
