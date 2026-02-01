@@ -12,7 +12,7 @@ from typing import Dict, Any, List, Optional
 
 logger = logging.getLogger(__name__)
 
-OPENROUTER_API_KEY = "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"
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 
 
@@ -21,7 +21,7 @@ class ChatAssistant:
     
     def __init__(self, model: str = "anthropic/claude-3-haiku"):
         self.model = model
-        self.api_key = OPENROUTER_API_KEY
+        self.api_key = OPENROUTER_API_KEY or ""
         self.conversation_history: List[Dict] = []
     
     def create_model_context(self, job_data: Dict) -> str:
