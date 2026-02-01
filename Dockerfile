@@ -6,7 +6,7 @@ COPY frontend/package*.json ./
 RUN npm ci --legacy-peer-deps
 COPY frontend/ .
 # Set env var for build (API URL will be relative path /api in prod)
-ENV NEXT_PUBLIC_API_URL=""
+ENV NEXT_PUBLIC_API_URL=
 RUN npm run build
 
 # 2. Build Backend & Serve

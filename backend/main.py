@@ -82,9 +82,17 @@ if os.path.exists(static_dir):
     async def spa_fallback(request, exc):
         # Fallback to index.html for SPA routing (if file not found)
         path = request.url.path
-        if not path.startswith("/api"):
-            return FileResponse(os.path.join(static_dir, "index.html"))
-        return JSONResponse({"detail": "Not Found"}, status_code=404)
+        
+        # API requests should return 404
+        if path.startswith("/api"):
+            return JSONResponse({"detail": "Not Found"}, status_code=404)
+            
+        # Static assets (js, css, images) should return 404 if missing
+        # preventing "Uncaught SyntaxError: Unexpected token '<'"
+        if "." in path.split("/")[-1]:
+             return JSONResponse({"detail": "Asset not found"}, status_code=404)
+             
+        return FileResponse(os.path.join(static_dir, "index.html"))
 
 
 # Output directory for generated models
