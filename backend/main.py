@@ -56,22 +56,31 @@ app = FastAPI(
     version="1.0.0",
 )
 
-# CORS middleware for frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000", 
-        "http://127.0.0.1:3000", 
-        "http://localhost:3001", 
-        "http://127.0.0.1:3001",
-        "https://ai-financial-modeler.vercel.app",
-        "https://ai-financial-modeler-backend-production.up.railway.app"
-    ],
-    allow_origin_regex=r"https://ai-financial-modeler.*\.vercel\.app",
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve Static Frontend (for Docker/Single-Container deployments)
+from fastapi.staticfiles import StaticFiles
+import os
+
+# Check if static folder exists (Docker env)
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+if os.path.exists(static_dir):
+    app.mount("/_next", StaticFiles(directory=os.path.join(static_dir, "_next")), name="next-static")
+    
+    @app.get("/")
+    async def serve_root():
+        return FileResponse(os.path.join(static_dir, "index.html"))
+
+    @app.exception_handler(404)
+    async def spa_fallback(request, exc):
+        # Fallback to index.html for SPA routing (if file not found)
+        path = request.url.path
+        if not path.startswith("/api"):
+            return FileResponse(os.path.join(static_dir, "index.html"))
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+
 
 # Output directory for generated models
 # Use /tmp on Vercel (read-only filesystem elsewhere)
