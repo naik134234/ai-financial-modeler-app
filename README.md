@@ -1,3 +1,12 @@
+---
+title: AI Financial Modeler
+emoji: 📈
+colorFrom: green
+colorTo: blue
+sdk: docker
+app_port: 7860
+---
+
 # AI Financial Modeling Platform
 
 An AI-powered platform for generating institutional-grade Excel financial models for Indian stocks. Built with FastAPI, Next.js, and Google Gemini AI.
