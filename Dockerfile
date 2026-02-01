@@ -3,7 +3,7 @@
 FROM node:18-alpine AS frontend-builder
 WORKDIR /app/frontend
 COPY frontend/package*.json ./
-RUN npm ci
+RUN npm ci --legacy-peer-deps
 COPY frontend/ .
 # Set env var for build (API URL will be relative path /api in prod)
 ENV NEXT_PUBLIC_API_URL=/api
