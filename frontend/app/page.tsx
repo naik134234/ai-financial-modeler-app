@@ -90,12 +90,22 @@ interface MonteCarloResults {
     company_name: string;
     simulations: number;
     results: {
-        statistics: {
-            share_price: { mean: number; median: number; std: number; min: number; max: number; p5: number; p25: number; p75: number; p95: number };
-            enterprise_value?: { mean: number; median: number };
-            equity_value?: { mean: number; median: number };
+        share_price: {
+            mean: number;
+            median: number;
+            std: number;
+            min: number;
+            max: number;
+            p5: number;
+            p25: number;
+            p75: number;
+            p95: number;
+            percentile_5?: number; // Python returns this
+            percentile_95?: number; // Python returns this
+            histogram?: { bin_start: number; bin_end: number; count: number; percentage: number }[];
         };
-        histogram?: { bins: number[]; counts: number[] };
+        enterprise_value?: { mean: number; median: number; percentile_5?: number; percentile_95?: number };
+        equity_value?: { mean: number; median: number; percentile_5?: number; percentile_95?: number };
         probability_above_current?: number;
         confidence_interval_90?: [number, number];
     };
@@ -104,11 +114,11 @@ interface MonteCarloResults {
 
 // API Functions
 // API Configuration
-// Production: Uses relative path (hits Vercel backend via rewrites)
-// Development: Hits local Python server
-const API_BASE = process.env.NODE_ENV === 'production'
-    ? ""
-    : "http://localhost:8000";
+// 1. Env Var (Best for Vercel/Render Split)
+// 2. Production default (Relative path for Docker/Same-Origin)
+// 3. Dev default (Localhost)
+const API_BASE = process.env.NEXT_PUBLIC_API_URL
+    || (process.env.NODE_ENV === 'production' ? "" : "http://localhost:8000");
 
 async function fetchAllStocks(sector?: string): Promise<{ stocks: Stock[]; count: number }> {
     const url = sector ? `${API_BASE}/api/stocks?sector=${sector}` : `${API_BASE}/api/stocks`;
@@ -230,19 +240,20 @@ async function fetchLBOTemplates(): Promise<{ templates: LBOTemplate[] }> {
     return response.json();
 }
 
-async function downloadExportFile(jobId: string, format: "pdf" | "pptx"): Promise<void> {
-    const response = await fetch(`${API_BASE}/api/export/${jobId}/${format}`);
-    if (!response.ok) throw new Error(`Export failed: ${format}`);
+async function downloadExportFile(jobId: string, format: "pdf" | "pptx" | "xlsm") {
+    const response = await fetch(`${API_BASE}/api/export/${jobId}?format=${format}`);
+    if (!response.ok) throw new Error("Export failed");
 
+    // For browser download
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
+    const a = document.createElement('a');
     a.href = url;
-    a.download = `model.${format}`;
+    a.download = `financial_model_${jobId}.${format === 'xlsm' ? 'xlsm' : format}`;
     document.body.appendChild(a);
     a.click();
-    a.remove();
     window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
 }
 
 async function uploadExcelFile(

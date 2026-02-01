@@ -2,16 +2,9 @@
 const nextConfig = {
     reactStrictMode: true,
     output: 'export',
-    async rewrites() {
-        return [
-            {
-                source: '/api/:path*',
-                destination: process.env.BACKEND_URL
-                    ? `${process.env.BACKEND_URL}/api/:path*`
-                    : 'http://localhost:8000/api/:path*',
-            },
-        ];
-    },
+    // Rewrites are NOT supported in static export
+    // We handle API routing via NEXT_PUBLIC_API_URL in the frontend code
+    // async rewrites() { ... }
 };
 
 module.exports = nextConfig;
