@@ -328,6 +328,39 @@ def load_csv_stocks():
 # Load stocks on module import
 load_csv_stocks()
 
+def load_us_stocks():
+    """Load US stocks from us_stocks.json"""
+    json_path = os.path.join(os.path.dirname(__file__), 'us_stocks.json')
+    
+    if not os.path.exists(json_path):
+        logger.warning(f"US Stock JSON not found at {json_path}")
+        return
+
+    try:
+        import json
+        with open(json_path, 'r') as f:
+            data = json.load(f)
+            stocks = data.get('stocks', [])
+            
+            count = 0
+            for stock in stocks:
+                if stock['symbol'] not in seen_symbols:
+                    stock['country'] = 'US'
+                    stock['exchange'] = stock.get('market', 'NYSE')
+                    ALL_STOCKS.append(stock)
+                    seen_symbols.add(stock['symbol'])
+                    
+                    # Add to sector map if needed (optional)
+                    
+                    count += 1
+            
+            logger.info(f"Loaded {count} US stocks from JSON")
+            
+    except Exception as e:
+        logger.error(f"Error loading US stocks JSON: {e}")
+
+load_us_stocks()
+
 def get_all_stocks():
     """Return all stocks as flat list"""
     return ALL_STOCKS

@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import jsPDF from "jspdf";
+import html2canvas from "html2canvas";
 import {
     FileSpreadsheet,
     Building2,
@@ -29,6 +31,9 @@ import {
     History,
     FileText,
     Presentation,
+    Code,
+    Save,
+    FolderOpen,
 } from "lucide-react";
 
 // Types
@@ -78,6 +83,22 @@ interface ExportFormat {
     extension: string | null;
     available: boolean;
     description: string;
+}
+
+interface MonteCarloResults {
+    job_id: string;
+    company_name: string;
+    simulations: number;
+    results: {
+        statistics: {
+            share_price: { mean: number; median: number; std: number; min: number; max: number; p5: number; p25: number; p75: number; p95: number };
+            enterprise_value?: { mean: number; median: number };
+            equity_value?: { mean: number; median: number };
+        };
+        histogram?: { bins: number[]; counts: number[] };
+        probability_above_current?: number;
+        confidence_interval_90?: [number, number];
+    };
 }
 
 
@@ -265,6 +286,12 @@ async function getExportFormats(): Promise<{ formats: ExportFormat[] }> {
     return response.json();
 }
 
+async function runMonteCarloSimulation(jobId: string, simulations: number = 1000): Promise<MonteCarloResults> {
+    const response = await fetch(`${API_BASE}/api/analysis/monte-carlo/${jobId}?simulations=${simulations}`);
+    if (!response.ok) throw new Error("Monte Carlo simulation failed");
+    return response.json();
+}
+
 async function downloadExport(jobId: string, format: string): Promise<void> {
     const response = await fetch(`${API_BASE}/api/export/${jobId}/${format}`);
     if (!response.ok) throw new Error(`Export failed: ${format}`);
@@ -356,11 +383,73 @@ export default function Home() {
     const [error, setError] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState(false);
 
+    // Monte Carlo simulation state
+    const [monteCarloResults, setMonteCarloResults] = useState<MonteCarloResults | null>(null);
+    const [isRunningMonteCarlo, setIsRunningMonteCarlo] = useState(false);
+
     // Excel file upload state
     const [excelFile, setExcelFile] = useState<File | null>(null);
     const [excelCompanyName, setExcelCompanyName] = useState("");
     const [excelIndustry, setExcelIndustry] = useState("general");
     const [isDragging, setIsDragging] = useState(false);
+
+    // Persistence State
+    const [showSaveModal, setShowSaveModal] = useState(false);
+    const [showLoadModal, setShowLoadModal] = useState(false);
+    const [projectName, setProjectName] = useState("");
+    const [savedProjects, setSavedProjects] = useState<any[]>([]);
+
+    const saveProject = async () => {
+        if (!projectName.trim()) return;
+        try {
+            await fetch(`${API_BASE}/api/projects`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    name: projectName,
+                    project_type: activeTab,
+                    configuration: {
+                        selectedStock,
+                        lboAssumptions,
+                        maAssumptions,
+                        searchQuery,
+                        activeTab
+                    }
+                })
+            });
+            setShowSaveModal(false);
+            setProjectName("");
+            alert("Project saved!");
+        } catch (e) {
+            console.error(e);
+            alert("Failed to save project");
+        }
+    };
+
+    const loadProjects = async () => {
+        try {
+            const res = await fetch(`${API_BASE}/api/projects`);
+            const data = await res.json();
+            setSavedProjects(data.projects || []);
+            setShowLoadModal(true);
+        } catch (e) {
+            console.error(e);
+        }
+    };
+
+    const loadProject = (project: any) => {
+        try {
+            const config = project.configuration;
+            if (config.activeTab) setActiveTab(config.activeTab);
+            if (config.selectedStock) setSelectedStock(config.selectedStock);
+            if (config.lboAssumptions) setLboAssumptions(config.lboAssumptions);
+            if (config.maAssumptions) setMaAssumptions(config.maAssumptions);
+            if (config.searchQuery) setSearchQuery(config.searchQuery);
+            setShowLoadModal(false);
+        } catch (e) {
+            console.error("Error applying project config", e);
+        }
+    };
 
     // LBO model state
     const [lboAssumptions, setLboAssumptions] = useState({
@@ -392,6 +481,87 @@ export default function Home() {
         acquirer_growth_rate: 0.05,
         target_growth_rate: 0.05,
     });
+
+    // Enhancement features state
+    const [showChat, setShowChat] = useState(false);
+    const [chatMessage, setChatMessage] = useState("");
+    const [chatHistory, setChatHistory] = useState<{ role: string; content: string }[]>([]);
+    const [isChatting, setIsChatting] = useState(false);
+    const [sensitivityData, setSensitivityData] = useState<any>(null);
+    const [footballFieldData, setFootballFieldData] = useState<any>(null);
+    const [showFootballField, setShowFootballField] = useState(false);
+    const [templates, setTemplates] = useState<any>({});
+    const [usStocks, setUsStocks] = useState<Stock[]>([]);
+    const [marketFilter, setMarketFilter] = useState<"all" | "india" | "us">("all");
+
+    // Fetch templates on mount
+    useEffect(() => {
+        fetch(`${API_BASE}/templates`)
+            .then(res => res.json())
+            .then(data => setTemplates(data.templates || {}))
+            .catch(err => console.log("Templates not loaded"));
+    }, []);
+
+    // Chat with AI about model
+    const sendChatMessage = async () => {
+        if (!chatMessage.trim() || !jobStatus?.job_id) return;
+
+        const userMsg = chatMessage;
+        setChatMessage("");
+        setChatHistory(prev => [...prev, { role: "user", content: userMsg }]);
+        setIsChatting(true);
+
+        try {
+            const response = await fetch(`${API_BASE}/chat/${jobStatus.job_id}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ message: userMsg, history: chatHistory })
+            });
+            const data = await response.json();
+            setChatHistory(prev => [...prev, { role: "assistant", content: data.response }]);
+        } catch (err) {
+            setChatHistory(prev => [...prev, { role: "assistant", content: "Sorry, I had trouble responding." }]);
+        } finally {
+            setIsChatting(false);
+        }
+    };
+
+    // Fetch sensitivity analysis
+    const fetchSensitivity = async () => {
+        if (!jobStatus?.job_id) return;
+        try {
+            const response = await fetch(`${API_BASE}/analysis/sensitivity/${jobStatus.job_id}`);
+            const data = await response.json();
+            setSensitivityData(data.sensitivity);
+        } catch (err) {
+            console.error("Sensitivity fetch error:", err);
+        }
+    };
+
+    // Fetch football field
+    const fetchFootballField = async () => {
+        if (!jobStatus?.job_id) return;
+        try {
+            const response = await fetch(`${API_BASE}/analysis/football-field/${jobStatus.job_id}`);
+            const data = await response.json();
+            setFootballFieldData(data.football_field);
+            setShowFootballField(true);
+        } catch (err) {
+            console.error("Football field fetch error:", err);
+        }
+    };
+
+    // Fetch US stocks
+    const fetchUsStocks = async (query: string) => {
+        try {
+            const response = await fetch(`${API_BASE}/stocks/us?search=${query}&limit=20`);
+            const data = await response.json();
+            setUsStocks(data.stocks || []);
+        } catch (err) {
+            console.log("US stocks not available");
+        }
+    };
+
 
     // Validation warnings for LBO/M&A inputs
     const validationWarnings = {
@@ -480,11 +650,19 @@ export default function Home() {
     // Search stocks
     useEffect(() => {
         if (searchQuery.length >= 2) {
-            searchStocks(searchQuery).then((data) => setSearchResults(data.results)).catch(console.error);
+            if (marketFilter === "us") {
+                fetch(`${API_BASE}/stocks/us?search=${searchQuery}&limit=20`)
+                    .then(res => res.json())
+                    .then(data => setSearchResults(data.stocks || []))
+                    .catch(console.error);
+            } else {
+                searchStocks(searchQuery).then((data) => setSearchResults(data.results)).catch(console.error);
+            }
         } else {
             setSearchResults([]);
+            setUsStocks([]);
         }
-    }, [searchQuery]);
+    }, [searchQuery, marketFilter]);
 
     // M&A Search stocks
     useEffect(() => {
@@ -504,6 +682,38 @@ export default function Home() {
         }
     }, [compareSearch]);
 
+
+    const handleExportPDF = async () => {
+        const input = document.getElementById('report-container');
+        if (!input) {
+            alert("No report content found to export.");
+            return;
+        }
+
+        try {
+            const canvas = await html2canvas(input, {
+                scale: 2,
+                useCORS: true,
+                logging: false,
+                backgroundColor: '#111827' // dark-900 background
+            });
+            const imgData = canvas.toDataURL('image/png');
+            const pdf = new jsPDF({
+                orientation: 'landscape',
+                unit: 'mm',
+                format: 'a4'
+            });
+
+            const pdfWidth = pdf.internal.pageSize.getWidth();
+            const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+            pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+            pdf.save(`${jobStatus?.company_name || 'Financial_Model'}_Report.pdf`);
+        } catch (err) {
+            console.error("PDF Export failed", err);
+            alert("Failed to export PDF. Please try again.");
+        }
+    };
 
     // Generate model
     const handleGenerate = async () => {
@@ -626,6 +836,20 @@ export default function Home() {
                 >
                     {/* Theme and History Controls */}
                     <div className="absolute right-0 top-0 flex items-center gap-2">
+                        <button
+                            onClick={() => setShowSaveModal(true)}
+                            className="p-2.5 rounded-xl bg-primary-500/20 text-primary-400 border border-primary-500/30 hover:bg-primary-500/30 transition-all"
+                            title="Save Project"
+                        >
+                            <Save className="w-5 h-5" />
+                        </button>
+                        <button
+                            onClick={loadProjects}
+                            className="p-2.5 rounded-xl bg-blue-500/20 text-blue-400 border border-blue-500/30 hover:bg-blue-500/30 transition-all"
+                            title="Open Project"
+                        >
+                            <FolderOpen className="w-5 h-5" />
+                        </button>
                         <button
                             onClick={() => setShowHistory(!showHistory)}
                             className="p-2.5 rounded-xl bg-dark-800/50 border border-dark-600 hover:bg-dark-700 hover:border-dark-500 transition-all"
@@ -750,6 +974,7 @@ export default function Home() {
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: 0.2 }}
                         className="lg:col-span-2 card p-6"
+                        id="report-container"
                     >
                         {/* Tab Navigation */}
                         <div className="flex gap-2 mb-6 flex-wrap">
@@ -809,13 +1034,35 @@ export default function Home() {
                             <>
                                 {/* Search & Filter */}
                                 <div className="flex flex-wrap gap-3 mb-4">
+                                    {/* Market Toggle */}
+                                    <div className="flex bg-dark-700/50 rounded-lg p-1 border border-dark-600">
+                                        <button
+                                            onClick={() => setMarketFilter("all")}
+                                            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${marketFilter === "all" || marketFilter === "india"
+                                                ? "bg-dark-600 text-white shadow-sm"
+                                                : "text-dark-400 hover:text-dark-200"
+                                                }`}
+                                        >
+                                            IND
+                                        </button>
+                                        <button
+                                            onClick={() => setMarketFilter("us")}
+                                            className={`px-3 py-1.5 rounded-md text-sm font-medium transition-all ${marketFilter === "us"
+                                                ? "bg-blue-600 text-white shadow-sm"
+                                                : "text-dark-400 hover:text-dark-200"
+                                                }`}
+                                        >
+                                            USA
+                                        </button>
+                                    </div>
+
                                     <div className="relative flex-1 min-w-[200px]">
                                         <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-dark-400" />
                                         <input
                                             type="text"
                                             value={searchQuery}
                                             onChange={(e) => setSearchQuery(e.target.value.toUpperCase())}
-                                            placeholder="Search stocks..."
+                                            placeholder={marketFilter === "us" ? "Search US stocks (AAPL, TSLA...)" : "Search filtered stocks..."}
                                             className="input-field w-full pl-12"
                                         />
                                     </div>
@@ -1169,10 +1416,31 @@ export default function Home() {
 
                                 {/* Operating Assumptions */}
                                 <div className="p-4 rounded-xl bg-dark-800/50 border border-dark-600">
-                                    <h4 className="font-medium text-white mb-3 flex items-center gap-2">
-                                        <LineChart className="w-4 h-4 text-green-400" />
-                                        Operating Assumptions
-                                    </h4>
+                                    <div className="flex justify-between items-center mb-3">
+                                        <h4 className="font-medium text-white flex items-center gap-2">
+                                            <LineChart className="w-4 h-4 text-green-400" />
+                                            Operating Assumptions
+                                        </h4>
+                                        <select
+                                            className="bg-dark-700 text-xs px-2 py-1 rounded border border-dark-600 text-dark-300 focus:outline-none focus:border-primary-500"
+                                            onChange={(e) => {
+                                                const t = lboTemplates.find(t => t.id === e.target.value);
+                                                if (t) {
+                                                    setLboAssumptions(prev => ({
+                                                        ...prev,
+                                                        revenue_growth: t.assumptions.revenue_growth || prev.revenue_growth,
+                                                        ebitda_margin: t.assumptions.ebitda_margin || prev.ebitda_margin,
+                                                        // Map other fields if needed, or use spread if keys match exactly
+                                                    }));
+                                                }
+                                            }}
+                                        >
+                                            <option value="">Load Template...</option>
+                                            {lboTemplates.map(t => (
+                                                <option key={t.id} value={t.id}>{t.name}</option>
+                                            ))}
+                                        </select>
+                                    </div>
                                     <div className="grid md:grid-cols-2 gap-3">
                                         <div>
                                             <label className="block text-xs text-dark-400 mb-1">Revenue Growth (%)</label>
@@ -1797,13 +2065,7 @@ export default function Home() {
 
                                                 {/* PDF Export Button */}
                                                 <button
-                                                    onClick={async () => {
-                                                        try {
-                                                            await downloadExportFile(jobStatus.job_id, "pdf");
-                                                        } catch (err) {
-                                                            alert("PDF export failed. Please try again.");
-                                                        }
-                                                    }}
+                                                    onClick={handleExportPDF}
                                                     className="btn-secondary w-full mt-2 inline-flex items-center justify-center gap-2"
                                                 >
                                                     <FileText className="w-5 h-5" />
@@ -1823,6 +2085,243 @@ export default function Home() {
                                                 >
                                                     <Presentation className="w-5 h-5" />
                                                     Export to PowerPoint
+                                                </button>
+
+                                                {/* Excel with VBA Export Button */}
+                                                <button
+                                                    onClick={async () => {
+                                                        try {
+                                                            await downloadExportFile(jobStatus.job_id, "xlsm");
+                                                        } catch (err) {
+                                                            alert("Excel with VBA export failed. Please try again.");
+                                                        }
+                                                    }}
+                                                    className="btn-secondary w-full mt-2 inline-flex items-center justify-center gap-2 border-green-500/30 hover:bg-green-500/10"
+                                                >
+                                                    <Code className="w-5 h-5 text-green-400" />
+                                                    Download with VBA Macros
+                                                </button>
+
+                                                {/* Monte Carlo Simulation Section */}
+                                                <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-purple-500/10 to-indigo-500/10 border border-purple-500/20">
+                                                    <h4 className="font-medium text-white mb-3 flex items-center gap-2">
+                                                        <BarChart3 className="w-4 h-4 text-purple-400" />
+                                                        Monte Carlo Simulation
+                                                    </h4>
+                                                    <p className="text-xs text-dark-400 mb-3">
+                                                        Run 1,000+ simulations to analyze valuation probability distribution
+                                                    </p>
+
+                                                    {!monteCarloResults ? (
+                                                        <button
+                                                            onClick={async () => {
+                                                                setIsRunningMonteCarlo(true);
+                                                                try {
+                                                                    const results = await runMonteCarloSimulation(jobStatus.job_id, 1000);
+                                                                    setMonteCarloResults(results);
+                                                                } catch (err) {
+                                                                    alert("Monte Carlo simulation failed. Please try again.");
+                                                                } finally {
+                                                                    setIsRunningMonteCarlo(false);
+                                                                }
+                                                            }}
+                                                            disabled={isRunningMonteCarlo}
+                                                            className="btn-primary w-full inline-flex items-center justify-center gap-2"
+                                                        >
+                                                            {isRunningMonteCarlo ? (
+                                                                <>
+                                                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                                                    Running Simulation...
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <BarChart3 className="w-4 h-4" />
+                                                                    Run Monte Carlo (1,000 iterations)
+                                                                </>
+                                                            )}
+                                                        </button>
+                                                    ) : (
+                                                        <div className="space-y-3">
+                                                            {/* Results Header */}
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-sm text-green-400 flex items-center gap-1">
+                                                                    <CheckCircle className="w-4 h-4" />
+                                                                    {monteCarloResults.simulations.toLocaleString()} simulations complete
+                                                                </span>
+                                                                <button
+                                                                    onClick={() => setMonteCarloResults(null)}
+                                                                    className="text-xs text-dark-400 hover:text-white"
+                                                                >
+                                                                    Run Again
+                                                                </button>
+                                                            </div>
+
+                                                            {/* Statistics Grid */}
+                                                            <div className="grid grid-cols-2 gap-2">
+                                                                <div className="p-2 rounded-lg bg-dark-800/50">
+                                                                    <p className="text-xs text-dark-400">Mean</p>
+                                                                    <p className="text-sm font-semibold text-white">
+                                                                        ₹{monteCarloResults.results.share_price?.mean?.toFixed(2) || 'N/A'}
+                                                                    </p>
+                                                                </div>
+                                                                <div className="p-2 rounded-lg bg-dark-800/50">
+                                                                    <p className="text-xs text-dark-400">Median</p>
+                                                                    <p className="text-sm font-semibold text-white">
+                                                                        ₹{monteCarloResults.results.share_price?.median?.toFixed(2) || 'N/A'}
+                                                                    </p>
+                                                                </div>
+                                                                <div className="p-2 rounded-lg bg-dark-800/50">
+                                                                    <p className="text-xs text-dark-400">5th Percentile</p>
+                                                                    <p className="text-sm font-semibold text-red-400">
+                                                                        ₹{monteCarloResults.results.share_price?.percentile_5?.toFixed(2) || 'N/A'}
+                                                                    </p>
+                                                                </div>
+                                                                <div className="p-2 rounded-lg bg-dark-800/50">
+                                                                    <p className="text-xs text-dark-400">95th Percentile</p>
+                                                                    <p className="text-sm font-semibold text-green-400">
+                                                                        ₹{monteCarloResults.results.share_price?.percentile_95?.toFixed(2) || 'N/A'}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+
+                                                            {/* Probability Info */}
+                                                            {monteCarloResults.results.probability_above_current !== undefined && (
+                                                                <div className="p-2 rounded-lg bg-green-500/10 border border-green-500/20">
+                                                                    <p className="text-xs text-dark-400">Probability Above Current Price</p>
+                                                                    <p className="text-sm font-semibold text-green-400">
+                                                                        {monteCarloResults.results.probability_above_current.toFixed(1)}%
+                                                                    </p>
+                                                                </div>
+                                                            )}
+
+                                                            {/* Confidence Interval */}
+                                                            {monteCarloResults.results.confidence_interval_90 && (
+                                                                <div className="p-2 rounded-lg bg-purple-500/10 border border-purple-500/20">
+                                                                    <p className="text-xs text-dark-400">90% Confidence Interval</p>
+                                                                    <p className="text-sm font-semibold text-purple-400">
+                                                                        ₹{monteCarloResults.results.confidence_interval_90[0]?.toFixed(2)} - ₹{monteCarloResults.results.confidence_interval_90[1]?.toFixed(2)}
+                                                                    </p>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+
+                                                {/* ========== SENSITIVITY TORNADO CHART ========== */}
+                                                <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/20">
+                                                    <div className="flex items-center justify-between mb-3">
+                                                        <h4 className="font-medium text-white flex items-center gap-2">
+                                                            <BarChart3 className="w-4 h-4 text-orange-400" />
+                                                            Sensitivity Analysis
+                                                        </h4>
+                                                        <button
+                                                            onClick={fetchSensitivity}
+                                                            className="text-xs px-2 py-1 rounded bg-orange-500/20 text-orange-300 hover:bg-orange-500/30"
+                                                        >
+                                                            {sensitivityData ? "Refresh" : "Load"}
+                                                        </button>
+                                                    </div>
+
+                                                    {sensitivityData?.tornado_data ? (
+                                                        <div className="space-y-2">
+                                                            {sensitivityData.tornado_data.slice(0, 5).map((item: any, i: number) => (
+                                                                <div key={i} className="relative">
+                                                                    <div className="flex items-center justify-between text-xs mb-1">
+                                                                        <span className="text-dark-400">{item.name}</span>
+                                                                        <span className="text-dark-300">₹{item.low} - ₹{item.high}</span>
+                                                                    </div>
+                                                                    <div className="h-4 bg-dark-800 rounded-full overflow-hidden relative">
+                                                                        <div
+                                                                            className="absolute h-full bg-gradient-to-r from-red-500 to-green-500 rounded-full"
+                                                                            style={{
+                                                                                left: `${Math.max(0, 50 + (item.low_delta / item.base) * 100)}%`,
+                                                                                width: `${Math.min(100, Math.abs(item.range / item.base) * 100)}%`
+                                                                            }}
+                                                                        />
+                                                                        <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white/50" />
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                            <p className="text-xs text-dark-400 text-center mt-2">
+                                                                Base: ₹{sensitivityData.base_share_price?.toFixed(2)}
+                                                            </p>
+                                                        </div>
+                                                    ) : (
+                                                        <p className="text-xs text-dark-400">
+                                                            Click "Load" to see how each assumption impacts valuation
+                                                        </p>
+                                                    )}
+                                                </div>
+
+                                                {/* ========== FOOTBALL FIELD CHART ========== */}
+                                                <div className="mt-4 p-4 rounded-xl bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-blue-500/20">
+                                                    <div className="flex items-center justify-between mb-3">
+                                                        <h4 className="font-medium text-white flex items-center gap-2">
+                                                            <LineChart className="w-4 h-4 text-blue-400" />
+                                                            Valuation Summary (Football Field)
+                                                        </h4>
+                                                        <button
+                                                            onClick={fetchFootballField}
+                                                            className="text-xs px-2 py-1 rounded bg-blue-500/20 text-blue-300 hover:bg-blue-500/30"
+                                                        >
+                                                            {footballFieldData ? "Refresh" : "Load"}
+                                                        </button>
+                                                    </div>
+
+                                                    {footballFieldData?.ranges ? (
+                                                        <div className="space-y-3">
+                                                            {footballFieldData.ranges.map((range: any, i: number) => (
+                                                                <div key={i}>
+                                                                    <div className="flex justify-between text-xs text-dark-400 mb-1">
+                                                                        <span>{range.method}</span>
+                                                                        <span>₹{range.low} - ₹{range.high}</span>
+                                                                    </div>
+                                                                    <div className="h-5 bg-dark-800 rounded relative overflow-hidden">
+                                                                        <div
+                                                                            className="absolute h-full rounded"
+                                                                            style={{
+                                                                                backgroundColor: range.color,
+                                                                                left: `${((range.low - footballFieldData.chart_config.min_x) / (footballFieldData.chart_config.max_x - footballFieldData.chart_config.min_x)) * 100}%`,
+                                                                                width: `${((range.high - range.low) / (footballFieldData.chart_config.max_x - footballFieldData.chart_config.min_x)) * 100}%`,
+                                                                                opacity: range.confidence === "high" ? 1 : 0.6
+                                                                            }}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            ))}
+                                                            {/* Current Price Line & Summary */}
+                                                            <div className="mt-4 p-3 rounded-lg" style={{ backgroundColor: footballFieldData.summary.rating_color + "20" }}>
+                                                                <div className="flex items-center justify-between">
+                                                                    <div>
+                                                                        <p className="text-xs text-dark-400">Target Price</p>
+                                                                        <p className="text-lg font-bold text-white">₹{footballFieldData.summary.target_price?.toFixed(2)}</p>
+                                                                    </div>
+                                                                    <div className="text-right">
+                                                                        <p className="text-xs text-dark-400">Upside</p>
+                                                                        <p className="text-lg font-bold" style={{ color: footballFieldData.summary.rating_color }}>
+                                                                            {footballFieldData.summary.upside_potential?.toFixed(1)}%
+                                                                        </p>
+                                                                    </div>
+                                                                    <div className="px-3 py-1 rounded-full text-sm font-medium" style={{ backgroundColor: footballFieldData.summary.rating_color, color: "white" }}>
+                                                                        {footballFieldData.summary.rating}
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        <p className="text-xs text-dark-400">
+                                                            Load to see valuation ranges from multiple methods
+                                                        </p>
+                                                    )}
+                                                </div>
+
+                                                {/* ========== AI CHAT BUTTON ========== */}
+                                                <button
+                                                    onClick={() => setShowChat(!showChat)}
+                                                    className="mt-4 w-full p-3 rounded-xl bg-gradient-to-r from-pink-500/20 to-violet-500/20 border border-pink-500/30 hover:border-pink-400/50 transition-all flex items-center justify-center gap-2"
+                                                >
+                                                    <Sparkles className="w-5 h-5 text-pink-400" />
+                                                    <span className="text-white font-medium">Ask AI About This Model</span>
                                                 </button>
 
                                                 {jobStatus.validation && (
@@ -1857,6 +2356,7 @@ export default function Home() {
                                                     setSelectedStock(null);
                                                     setExcelFile(null);
                                                     setExcelCompanyName("");
+                                                    setMonteCarloResults(null);
                                                 }}
                                                 className="btn-secondary w-full mt-2"
                                             >
@@ -1882,7 +2382,171 @@ export default function Home() {
                         Built with AI • DCF Valuation • Charts & Sensitivity Analysis • 150+ Stocks
                     </p>
                 </motion.footer>
-            </div>
+            </div >
+
+            {/* ========== FLOATING AI CHAT WIDGET ========== */}
+            <AnimatePresence>
+                {showChat && (
+                    <motion.div
+                        initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 20, scale: 0.95 }}
+                        className="fixed bottom-6 right-6 w-96 max-h-[500px] bg-dark-900 border border-dark-700 rounded-2xl shadow-2xl flex flex-col z-50"
+                    >
+                        {/* Chat Header */}
+                        <div className="flex items-center justify-between p-4 border-b border-dark-700">
+                            <div className="flex items-center gap-2">
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-pink-500 to-violet-500 flex items-center justify-center">
+                                    <Sparkles className="w-4 h-4 text-white" />
+                                </div>
+                                <div>
+                                    <p className="font-medium text-white text-sm">AI Financial Analyst</p>
+                                    <p className="text-xs text-dark-400">Ask about {jobStatus?.company_name || "the model"}</p>
+                                </div>
+                            </div>
+                            <button onClick={() => setShowChat(false)} className="text-dark-400 hover:text-white">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+
+                        {/* Chat Messages */}
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 max-h-72">
+                            {chatHistory.length === 0 && (
+                                <div className="text-center py-8">
+                                    <Sparkles className="w-8 h-8 text-pink-400 mx-auto mb-2" />
+                                    <p className="text-sm text-dark-400">Ask me anything about the valuation...</p>
+                                    <div className="mt-3 space-y-2">
+                                        {["What drives the valuation?", "What are the key risks?", "How sensitive is WACC?"].map((q, i) => (
+                                            <button
+                                                key={i}
+                                                onClick={() => { setChatMessage(q); }}
+                                                className="block w-full text-xs text-left px-3 py-2 rounded-lg bg-dark-800 hover:bg-dark-700 text-dark-300"
+                                            >
+                                                {q}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+                            {chatHistory.map((msg, i) => (
+                                <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                                    <div className={`max-w-[80%] px-3 py-2 rounded-xl text-sm ${msg.role === "user"
+                                        ? "bg-primary-500 text-white"
+                                        : "bg-dark-800 text-dark-200"
+                                        }`}>
+                                        {msg.content}
+                                    </div>
+                                </div>
+                            ))}
+                            {isChatting && (
+                                <div className="flex justify-start">
+                                    <div className="bg-dark-800 px-3 py-2 rounded-xl">
+                                        <Loader2 className="w-4 h-4 animate-spin text-pink-400" />
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* Chat Input */}
+                        <div className="p-3 border-t border-dark-700">
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={chatMessage}
+                                    onChange={(e) => setChatMessage(e.target.value)}
+                                    onKeyDown={(e) => e.key === "Enter" && sendChatMessage()}
+                                    placeholder="Ask about the model..."
+                                    className="flex-1 px-3 py-2 rounded-lg bg-dark-800 border border-dark-700 text-white text-sm focus:outline-none focus:border-pink-500"
+                                />
+                                <button
+                                    onClick={sendChatMessage}
+                                    disabled={isChatting || !chatMessage.trim()}
+                                    className="px-4 py-2 rounded-lg bg-gradient-to-r from-pink-500 to-violet-500 text-white text-sm font-medium disabled:opacity-50"
+                                >
+                                    Send
+                                </button>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* ========== SAVE PROJECT MODAL ========== */}
+            <AnimatePresence>
+                {showSaveModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-dark-900 border border-dark-700 p-6 rounded-2xl w-full max-w-md shadow-2xl"
+                        >
+                            <h3 className="text-xl font-bold text-white mb-4">Save Project</h3>
+                            <input
+                                type="text"
+                                placeholder="Project Name"
+                                value={projectName}
+                                onChange={(e) => setProjectName(e.target.value)}
+                                className="input-field w-full mb-4"
+                            />
+                            <div className="flex justify-end gap-3">
+                                <button
+                                    onClick={() => setShowSaveModal(false)}
+                                    className="px-4 py-2 rounded-lg text-dark-300 hover:text-white"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={saveProject}
+                                    className="px-4 py-2 rounded-lg bg-primary-500 text-white hover:bg-primary-600 font-medium"
+                                >
+                                    Save
+                                </button>
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
+
+            {/* ========== LOAD PROJECT MODAL ========== */}
+            <AnimatePresence>
+                {showLoadModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                        <motion.div
+                            initial={{ opacity: 0, scale: 0.95 }}
+                            animate={{ opacity: 1, scale: 1 }}
+                            exit={{ opacity: 0, scale: 0.95 }}
+                            className="bg-dark-900 border border-dark-700 p-6 rounded-2xl w-full max-w-lg shadow-2xl max-h-[80vh] flex flex-col"
+                        >
+                            <div className="flex justify-between items-center mb-4">
+                                <h3 className="text-xl font-bold text-white">Load Project</h3>
+                                <button onClick={() => setShowLoadModal(false)}>
+                                    <X className="w-5 h-5 text-dark-400 hover:text-white" />
+                                </button>
+                            </div>
+
+                            <div className="flex-1 overflow-y-auto space-y-2 pr-2 custom-scrollbar">
+                                {savedProjects.length === 0 ? (
+                                    <p className="text-dark-400 text-center py-8">No saved projects found.</p>
+                                ) : (
+                                    savedProjects.map((p) => (
+                                        <button
+                                            key={p.id}
+                                            onClick={() => loadProject(p)}
+                                            className="w-full text-left p-3 rounded-xl bg-dark-800 hover:bg-dark-700 border border-dark-700 transition-colors group"
+                                        >
+                                            <p className="font-medium text-white group-hover:text-primary-400 transition-colors">{p.name}</p>
+                                            <p className="text-xs text-dark-400 mt-1">
+                                                {new Date(p.updated_at).toLocaleDateString()} • {p.project_type || "General"}
+                                            </p>
+                                        </button>
+                                    ))
+                                )}
+                            </div>
+                        </motion.div>
+                    </div>
+                )}
+            </AnimatePresence>
         </main >
     );
 }

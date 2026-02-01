@@ -39,9 +39,15 @@ from analysis.monte_carlo import run_monte_carlo_simulation
 from data.damodaran_data import get_all_industry_data, map_yahoo_industry, get_india_erp
 from data.alpha_vantage import fetch_alpha_vantage_data, AlphaVantageAPI
 
+# Import Chat and Analysis modules
+from agents.chat_assistant import process_chat_message
+from analysis.tornado_analysis import calculate_sensitivity
+from analysis.football_field import create_football_field
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+logger.info("--- SERVER STARTED WITH CHAT & CHARTS ENABLED ---")
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -230,6 +236,70 @@ async def get_company_info(symbol: str, exchange: str = "NSE"):
     except Exception as e:
         logger.error(f"Error fetching company info for {symbol}: {e}")
         raise HTTPException(status_code=404, detail=f"Company not found: {symbol}")
+
+        raise HTTPException(status_code=404, detail=f"Company not found: {symbol}")
+
+
+# --- NEW API ROUTES FOR CHAT & ANALYSIS ---
+
+class ChatRequest(BaseModel):
+    message: str
+    history: Optional[List[Dict[str, str]]] = None
+
+@app.post("/api/chat/{job_id}")
+async def chat_endpoint(job_id: str, request: ChatRequest):
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = jobs[job_id]
+    
+    # Ensure job has data needed for chat
+    # We pass the whole job dict, the assistant handles extraction
+    
+    # Run in threadpool to avoid blocking
+    loop = asyncio.get_event_loop()
+    response = await loop.run_in_executor(None, process_chat_message, request.message, job, request.history)
+    
+    if not response['success']:
+        # Return 200 with error message as chat response so UI doesn't crash
+        return {"response": response.get('response', 'Error processing request')}
+        
+    return {"response": response['response']}
+
+@app.get("/api/analysis/sensitivity/{job_id}")
+async def get_sensitivity(job_id: str):
+    if job_id not in jobs:
+         raise HTTPException(status_code=404, detail="Job not found")
+    job = jobs[job_id]
+    
+    # Check if we have valuation data
+    # (assuming job stores 'valuation_summary' or similar from generate_financial_model)
+    # If not present, we might need to fallback or check job status
+    
+    valuation_data = job.get('valuation_data', {})
+    assumptions = job.get('assumptions', {})
+    
+    if not valuation_data:
+        # Fallback: try to construct minimal data from request if job finished?
+        # Or return empty
+        pass
+        
+    data = calculate_sensitivity(valuation_data, assumptions)
+    return {"sensitivity": data}
+
+@app.get("/api/analysis/football-field/{job_id}")
+async def get_football_field(job_id: str):
+    if job_id not in jobs:
+         raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = jobs[job_id]
+    
+    valuation_data = job.get('valuation_data', {})
+    monte_carlo = job.get('monte_carlo_results')
+    competitors = job.get('competitors_data', {}) # or similar
+    
+    data = create_football_field(valuation_data, monte_carlo, competitors)
+    return {"football_field": data}
 
 
 @app.post("/api/model/generate", response_model=ModelResponse)
@@ -981,7 +1051,7 @@ async def preview_excel(file: UploadFile = File(...)):
 # ======================= MONTE CARLO API =======================
 
 @app.get("/api/analysis/monte-carlo/{job_id}")
-async def run_monte_carlo(job_id: str, simulations: int = 1000):
+async def run_monte_carlo_endpoint(job_id: str, simulations: int = 1000):
     """Run Monte Carlo simulation on a completed model"""
     if job_id not in jobs:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -991,41 +1061,45 @@ async def run_monte_carlo(job_id: str, simulations: int = 1000):
         raise HTTPException(status_code=400, detail="Model not ready for simulation")
     
     try:
-        from analysis.monte_carlo import MonteCarloSimulator
+        from analysis.monte_carlo import run_monte_carlo_simulation
         
-        # Get model assumptions
-        excel_path = job.get("file_path")
         company_name = job.get("company_name", "Company")
         
-        # Run simulation with default parameters
-        simulator = MonteCarloSimulator(
-            base_revenue=1000,  # Will be extracted from model
-            base_growth_rate=0.10,
-            base_margin=0.20,
-            simulations=min(simulations, 10000)  # Cap at 10k
-        )
+        # Extract assumptions from job data or use defaults
+        request_data = job.get("request", {})
         
-        results = simulator.run_valuation_simulation()
+        base_assumptions = {
+            'revenue_growth': request_data.get('revenue_growth', 0.10),
+            'ebitda_margin': request_data.get('ebitda_margin', 0.18),
+            'terminal_growth': request_data.get('terminal_growth', 0.04),
+            'wacc': request_data.get('wacc', 0.12),
+        }
+        
+        # Extract valuation metrics from job or use estimates
+        base_valuation = {
+            'enterprise_value': job.get('valuation', {}).get('enterprise_value', 10000),
+            'equity_value': job.get('valuation', {}).get('equity_value', 8000),
+            'share_price': job.get('valuation', {}).get('share_price', 250),
+            'net_debt': job.get('valuation', {}).get('net_debt', 2000),
+        }
+        
+        # Run simulation (cap at 10k for performance)
+        results = run_monte_carlo_simulation(
+            base_assumptions=base_assumptions,
+            base_valuation=base_valuation,
+            num_simulations=min(simulations, 10000)
+        )
         
         return {
             "job_id": job_id,
             "company_name": company_name,
-            "simulations": simulations,
-            "results": {
-                "mean_value": results.get("mean", 0),
-                "median_value": results.get("median", 0),
-                "std_dev": results.get("std", 0),
-                "percentile_10": results.get("p10", 0),
-                "percentile_25": results.get("p25", 0),
-                "percentile_75": results.get("p75", 0),
-                "percentile_90": results.get("p90", 0),
-                "min_value": results.get("min", 0),
-                "max_value": results.get("max", 0),
-            }
+            "simulations": min(simulations, 10000),
+            "results": results
         }
     except Exception as e:
         logger.error(f"Monte Carlo simulation failed: {e}")
         raise HTTPException(status_code=500, detail=f"Simulation failed: {str(e)}")
+
 
 
 # ======================= CACHE API =======================
@@ -2187,8 +2261,58 @@ async def export_model(job_id: str, format: str):
             detail="Google Sheets export requires additional setup. Configure GOOGLE_APPLICATION_CREDENTIALS."
         )
     
+    elif format.lower() == "xlsm":
+        # Generate xlsm with VBA modules
+        try:
+            from exporters.xlsm_generator import create_xlsm_with_vba, get_vba_modules_zip
+            
+            # Get the actual Excel file path from the job
+            xlsx_path = job.get("file_path")
+            
+            if not xlsx_path or not os.path.exists(xlsx_path):
+                raise HTTPException(status_code=404, detail="Original Excel file not found")
+            
+            xlsm_path = xlsx_path.replace('.xlsx', '_with_vba.xlsm')
+            
+            success = create_xlsm_with_vba(xlsx_path, xlsm_path)
+            
+            if success:
+                return FileResponse(
+                    xlsm_path,
+                    media_type="application/vnd.ms-excel.sheet.macroEnabled.12",
+                    filename=f"{company_name.replace(' ', '_')}_Model_with_VBA.xlsm"
+                )
+            else:
+                raise HTTPException(status_code=500, detail="Failed to create xlsm file")
+        except ImportError:
+            raise HTTPException(status_code=501, detail="XLSM generator not available")
+    
     else:
         raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
+
+
+@app.get("/api/export/{job_id}/vba-modules")
+async def get_vba_modules(job_id: str):
+    """Download VBA modules as a zip file"""
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    try:
+        from exporters.xlsm_generator import get_vba_modules_zip
+        
+        company_name = jobs[job_id].get("company_name", "Model")
+        zip_path = os.path.join(OUTPUT_DIR, f"{job_id}_vba_modules.zip")
+        
+        get_vba_modules_zip(zip_path)
+        
+        return FileResponse(
+            zip_path,
+            media_type="application/zip",
+            filename=f"{company_name.replace(' ', '_')}_VBA_Modules.zip"
+        )
+    except Exception as e:
+        logger.error(f"Failed to create VBA modules zip: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/export/formats")
@@ -2202,6 +2326,13 @@ async def get_export_formats():
                 "extension": ".xlsx",
                 "available": True,
                 "description": "Full financial model workbook"
+            },
+            {
+                "id": "xlsm",
+                "name": "Excel with VBA",
+                "extension": ".xlsm",
+                "available": True,
+                "description": "Macro-enabled workbook with VBA automation"
             },
             {
                 "id": "pdf",
@@ -2248,6 +2379,233 @@ async def set_preference(key: str, value: str):
         logger.error(f"Error setting preference: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# ============================================================
+# ENHANCEMENT ENDPOINTS
+# ============================================================
+
+@app.get("/api/analysis/sensitivity/{job_id}")
+async def get_sensitivity_analysis(job_id: str, variation: float = 0.10):
+    """
+    Get sensitivity analysis for tornado chart visualization
+    
+    Args:
+        job_id: Job identifier
+        variation: Percentage variation for each assumption (default 10%)
+    """
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = jobs[job_id]
+    if job.get("status") != "completed":
+        raise HTTPException(status_code=400, detail="Model not ready")
+    
+    try:
+        from analysis.tornado_analysis import calculate_sensitivity
+        
+        valuation_data = job.get("valuation_data", {})
+        assumptions = job.get("assumptions", {})
+        
+        sensitivity = calculate_sensitivity(valuation_data, assumptions, variation)
+        
+        return {
+            "job_id": job_id,
+            "company_name": job.get("company_name"),
+            "sensitivity": sensitivity
+        }
+    except Exception as e:
+        logger.error(f"Sensitivity analysis error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/chat/{job_id}")
+async def chat_with_model(job_id: str, request: dict):
+    """
+    AI chat about the financial model
+    
+    Args:
+        job_id: Job identifier
+        request: {"message": "user question", "history": []}
+    """
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = jobs[job_id]
+    message = request.get("message", "")
+    history = request.get("history", [])
+    
+    if not message:
+        raise HTTPException(status_code=400, detail="Message required")
+    
+    try:
+        from agents.chat_assistant import process_chat_message, get_suggested_questions
+        
+        response = process_chat_message(message, job, history)
+        suggestions = get_suggested_questions(job)
+        
+        return {
+            "job_id": job_id,
+            "response": response.get("response", ""),
+            "success": response.get("success", False),
+            "suggestions": suggestions[:3]
+        }
+    except Exception as e:
+        logger.error(f"Chat error: {e}")
+        return {
+            "job_id": job_id,
+            "response": f"Sorry, I encountered an error: {str(e)}",
+            "success": False,
+            "suggestions": []
+        }
+
+
+@app.get("/api/chat/{job_id}/suggestions")
+async def get_chat_suggestions(job_id: str):
+    """Get suggested questions for the model"""
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    try:
+        from agents.chat_assistant import get_suggested_questions
+        suggestions = get_suggested_questions(jobs[job_id])
+        return {"suggestions": suggestions}
+    except Exception as e:
+        return {"suggestions": ["What are the key value drivers?", "What are the main risks?"]}
+
+
+@app.get("/api/analysis/football-field/{job_id}")
+async def get_football_field(job_id: str):
+    """
+    Get football field valuation summary
+    
+    Aggregates DCF, Monte Carlo, and Comps into visual range
+    """
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    job = jobs[job_id]
+    if job.get("status") != "completed":
+        raise HTTPException(status_code=400, detail="Model not ready")
+    
+    try:
+        from analysis.football_field import create_football_field
+        
+        valuation_data = job.get("valuation_data", {})
+        monte_carlo = job.get("monte_carlo_results")
+        
+        football_field = create_football_field(valuation_data, monte_carlo)
+        
+        return {
+            "job_id": job_id,
+            "company_name": job.get("company_name"),
+            "football_field": football_field
+        }
+    except Exception as e:
+        logger.error(f"Football field error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/templates")
+async def get_model_templates():
+    """Get available model templates"""
+    try:
+        import json
+        templates_path = os.path.join(os.path.dirname(__file__), "config", "templates.json")
+        
+        # Try relative path first
+        if not os.path.exists(templates_path):
+            templates_path = os.path.join(os.path.dirname(__file__), "..", "config", "templates.json")
+        
+        if os.path.exists(templates_path):
+            with open(templates_path, 'r') as f:
+                data = json.load(f)
+            return data
+        else:
+            return {"templates": {}, "scenarios": {}}
+    except Exception as e:
+        logger.error(f"Templates error: {e}")
+        return {"templates": {}, "scenarios": {}}
+
+
+@app.get("/api/templates/{template_id}")
+async def get_template(template_id: str):
+    """Get specific template by ID"""
+    templates = await get_model_templates()
+    template = templates.get("templates", {}).get(template_id)
+    
+    if not template:
+        raise HTTPException(status_code=404, detail=f"Template '{template_id}' not found")
+    
+    return template
+
+
+@app.get("/api/stocks/us")
+async def get_us_stocks(search: str = None, sector: str = None, limit: int = 50):
+    """
+    Get US stocks (NYSE/NASDAQ)
+    
+    Args:
+        search: Search term for symbol or name
+        sector: Filter by sector
+        limit: Max results
+    """
+    try:
+        import json
+        us_stocks_path = os.path.join(os.path.dirname(__file__), "data", "us_stocks.json")
+        
+        if os.path.exists(us_stocks_path):
+            with open(us_stocks_path, 'r') as f:
+                data = json.load(f)
+            
+            stocks = data.get("stocks", [])
+            
+            # Apply filters
+            if search:
+                search = search.upper()
+                stocks = [s for s in stocks if search in s["symbol"] or search in s["name"].upper()]
+            
+            if sector:
+                stocks = [s for s in stocks if sector.lower() in s["sector"].lower()]
+            
+            return {"stocks": stocks[:limit], "total": len(stocks)}
+        else:
+            return {"stocks": [], "total": 0}
+    except Exception as e:
+        logger.error(f"US stocks error: {e}")
+        return {"stocks": [], "total": 0}
+
+
+@app.post("/api/scenarios/{job_id}/save")
+async def save_scenario(job_id: str, request: dict):
+    """Save current assumptions as a scenario"""
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    scenario_name = request.get("name", "Saved Scenario")
+    
+    job = jobs[job_id]
+    scenario = {
+        "name": scenario_name,
+        "assumptions": job.get("assumptions", {}),
+        "valuation_data": job.get("valuation_data", {}),
+        "created_at": datetime.now().isoformat()
+    }
+    
+    # Store in job
+    if "scenarios" not in job:
+        job["scenarios"] = []
+    job["scenarios"].append(scenario)
+    
+    return {"success": True, "scenario": scenario}
+
+
+@app.get("/api/scenarios/{job_id}")
+async def get_scenarios(job_id: str):
+    """Get saved scenarios for a job"""
+    if job_id not in jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    return {"scenarios": jobs[job_id].get("scenarios", [])}
 
 
 if __name__ == "__main__":

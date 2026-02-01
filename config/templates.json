@@ -1,0 +1,430 @@
+{
+    "templates": {
+        "saas": {
+            "name": "SaaS / Software",
+            "description": "Subscription-based software company model",
+            "icon": "💻",
+            "color": "#6366F1",
+            "assumptions": {
+                "revenue_growth": 0.25,
+                "ebitda_margin": 0.22,
+                "terminal_growth": 0.035,
+                "wacc": 0.11,
+                "tax_rate": 0.25,
+                "capex_percent": 0.03,
+                "depreciation_percent": 0.04,
+                "nwc_percent": -0.05
+            },
+            "kpis": [
+                {
+                    "name": "ARR Growth",
+                    "default": 0.30
+                },
+                {
+                    "name": "Net Revenue Retention",
+                    "default": 1.15
+                },
+                {
+                    "name": "Gross Margin",
+                    "default": 0.75
+                },
+                {
+                    "name": "CAC Payback (months)",
+                    "default": 18
+                },
+                {
+                    "name": "LTV/CAC",
+                    "default": 3.5
+                },
+                {
+                    "name": "Rule of 40",
+                    "default": 45
+                }
+            ],
+            "multiples": {
+                "ev_revenue": {
+                    "low": 4,
+                    "mid": 8,
+                    "high": 15
+                },
+                "ev_arr": {
+                    "low": 5,
+                    "mid": 10,
+                    "high": 20
+                }
+            }
+        },
+        "manufacturing": {
+            "name": "Manufacturing",
+            "description": "Industrial manufacturing company model",
+            "icon": "🏭",
+            "color": "#F59E0B",
+            "assumptions": {
+                "revenue_growth": 0.08,
+                "ebitda_margin": 0.14,
+                "terminal_growth": 0.03,
+                "wacc": 0.10,
+                "tax_rate": 0.28,
+                "capex_percent": 0.08,
+                "depreciation_percent": 0.06,
+                "nwc_percent": 0.15
+            },
+            "kpis": [
+                {
+                    "name": "Gross Margin",
+                    "default": 0.28
+                },
+                {
+                    "name": "Asset Turnover",
+                    "default": 1.2
+                },
+                {
+                    "name": "Inventory Days",
+                    "default": 60
+                },
+                {
+                    "name": "Receivable Days",
+                    "default": 45
+                },
+                {
+                    "name": "Capacity Utilization",
+                    "default": 0.78
+                }
+            ],
+            "multiples": {
+                "ev_ebitda": {
+                    "low": 5,
+                    "mid": 7,
+                    "high": 10
+                },
+                "pe_ratio": {
+                    "low": 10,
+                    "mid": 15,
+                    "high": 20
+                }
+            }
+        },
+        "banking": {
+            "name": "Banking / NBFC",
+            "description": "Financial services and banking model",
+            "icon": "🏦",
+            "color": "#10B981",
+            "assumptions": {
+                "revenue_growth": 0.12,
+                "ebitda_margin": 0.35,
+                "terminal_growth": 0.04,
+                "wacc": 0.13,
+                "tax_rate": 0.25,
+                "roe": 0.14,
+                "nim": 0.035,
+                "cost_to_income": 0.45
+            },
+            "kpis": [
+                {
+                    "name": "Net Interest Margin",
+                    "default": 0.035
+                },
+                {
+                    "name": "Cost to Income",
+                    "default": 0.45
+                },
+                {
+                    "name": "ROE",
+                    "default": 0.14
+                },
+                {
+                    "name": "ROA",
+                    "default": 0.012
+                },
+                {
+                    "name": "Gross NPA",
+                    "default": 0.025
+                },
+                {
+                    "name": "CAR",
+                    "default": 0.16
+                }
+            ],
+            "multiples": {
+                "pb_ratio": {
+                    "low": 0.8,
+                    "mid": 1.5,
+                    "high": 2.5
+                },
+                "pe_ratio": {
+                    "low": 8,
+                    "mid": 12,
+                    "high": 18
+                }
+            }
+        },
+        "ecommerce": {
+            "name": "E-Commerce",
+            "description": "Online retail and marketplace model",
+            "icon": "🛒",
+            "color": "#EC4899",
+            "assumptions": {
+                "revenue_growth": 0.20,
+                "ebitda_margin": 0.08,
+                "terminal_growth": 0.04,
+                "wacc": 0.12,
+                "tax_rate": 0.25,
+                "capex_percent": 0.04,
+                "depreciation_percent": 0.05,
+                "nwc_percent": -0.10
+            },
+            "kpis": [
+                {
+                    "name": "GMV Growth",
+                    "default": 0.25
+                },
+                {
+                    "name": "Take Rate",
+                    "default": 0.15
+                },
+                {
+                    "name": "Average Order Value",
+                    "default": 1500
+                },
+                {
+                    "name": "Customer Acquisition Cost",
+                    "default": 500
+                },
+                {
+                    "name": "Repeat Purchase Rate",
+                    "default": 0.40
+                }
+            ],
+            "multiples": {
+                "ev_revenue": {
+                    "low": 1.5,
+                    "mid": 3,
+                    "high": 6
+                },
+                "ev_gmv": {
+                    "low": 0.3,
+                    "mid": 0.6,
+                    "high": 1.2
+                }
+            }
+        },
+        "pharma": {
+            "name": "Pharmaceuticals",
+            "description": "Pharmaceutical and healthcare company model",
+            "icon": "💊",
+            "color": "#8B5CF6",
+            "assumptions": {
+                "revenue_growth": 0.10,
+                "ebitda_margin": 0.24,
+                "terminal_growth": 0.03,
+                "wacc": 0.10,
+                "tax_rate": 0.22,
+                "capex_percent": 0.05,
+                "rd_percent": 0.12,
+                "depreciation_percent": 0.04
+            },
+            "kpis": [
+                {
+                    "name": "R&D as % of Sales",
+                    "default": 0.12
+                },
+                {
+                    "name": "Gross Margin",
+                    "default": 0.65
+                },
+                {
+                    "name": "US Revenue %",
+                    "default": 0.40
+                },
+                {
+                    "name": "ANDA Pipeline",
+                    "default": 25
+                }
+            ],
+            "multiples": {
+                "ev_ebitda": {
+                    "low": 10,
+                    "mid": 14,
+                    "high": 20
+                },
+                "pe_ratio": {
+                    "low": 15,
+                    "mid": 22,
+                    "high": 30
+                }
+            }
+        },
+        "realestate": {
+            "name": "Real Estate",
+            "description": "Real estate development and REIT model",
+            "icon": "🏢",
+            "color": "#0EA5E9",
+            "assumptions": {
+                "revenue_growth": 0.08,
+                "ebitda_margin": 0.28,
+                "terminal_growth": 0.025,
+                "wacc": 0.11,
+                "tax_rate": 0.25,
+                "capex_percent": 0.15,
+                "depreciation_percent": 0.03
+            },
+            "kpis": [
+                {
+                    "name": "Occupancy Rate",
+                    "default": 0.92
+                },
+                {
+                    "name": "Rental Yield",
+                    "default": 0.06
+                },
+                {
+                    "name": "Cap Rate",
+                    "default": 0.075
+                },
+                {
+                    "name": "Debt/Equity",
+                    "default": 0.60
+                },
+                {
+                    "name": "FFO Yield",
+                    "default": 0.08
+                }
+            ],
+            "multiples": {
+                "pb_ratio": {
+                    "low": 0.7,
+                    "mid": 1.2,
+                    "high": 2.0
+                },
+                "ev_ebitda": {
+                    "low": 10,
+                    "mid": 15,
+                    "high": 22
+                }
+            }
+        },
+        "fmcg": {
+            "name": "FMCG / Consumer",
+            "description": "Fast-moving consumer goods model",
+            "icon": "🛍️",
+            "color": "#F97316",
+            "assumptions": {
+                "revenue_growth": 0.10,
+                "ebitda_margin": 0.20,
+                "terminal_growth": 0.04,
+                "wacc": 0.10,
+                "tax_rate": 0.25,
+                "capex_percent": 0.04,
+                "depreciation_percent": 0.04,
+                "nwc_percent": 0.08
+            },
+            "kpis": [
+                {
+                    "name": "Volume Growth",
+                    "default": 0.06
+                },
+                {
+                    "name": "Gross Margin",
+                    "default": 0.52
+                },
+                {
+                    "name": "Ad Spend %",
+                    "default": 0.10
+                },
+                {
+                    "name": "Distribution Reach",
+                    "default": 0.85
+                }
+            ],
+            "multiples": {
+                "ev_ebitda": {
+                    "low": 15,
+                    "mid": 25,
+                    "high": 40
+                },
+                "pe_ratio": {
+                    "low": 30,
+                    "mid": 45,
+                    "high": 70
+                }
+            }
+        },
+        "infrastructure": {
+            "name": "Infrastructure",
+            "description": "Infrastructure and utilities model",
+            "icon": "🌉",
+            "color": "#64748B",
+            "assumptions": {
+                "revenue_growth": 0.06,
+                "ebitda_margin": 0.35,
+                "terminal_growth": 0.025,
+                "wacc": 0.09,
+                "tax_rate": 0.25,
+                "capex_percent": 0.12,
+                "depreciation_percent": 0.05
+            },
+            "kpis": [
+                {
+                    "name": "Asset Life (years)",
+                    "default": 30
+                },
+                {
+                    "name": "Concession Remaining",
+                    "default": 20
+                },
+                {
+                    "name": "Traffic Growth",
+                    "default": 0.05
+                },
+                {
+                    "name": "Toll Rate Escalation",
+                    "default": 0.05
+                }
+            ],
+            "multiples": {
+                "ev_ebitda": {
+                    "low": 8,
+                    "mid": 12,
+                    "high": 16
+                },
+                "pe_ratio": {
+                    "low": 12,
+                    "mid": 18,
+                    "high": 25
+                }
+            }
+        }
+    },
+    "scenarios": {
+        "bull": {
+            "name": "Bull Case",
+            "color": "#22C55E",
+            "multipliers": {
+                "revenue_growth": 1.3,
+                "ebitda_margin": 1.15,
+                "wacc": 0.9,
+                "terminal_growth": 1.1
+            }
+        },
+        "base": {
+            "name": "Base Case",
+            "color": "#3B82F6",
+            "multipliers": {
+                "revenue_growth": 1.0,
+                "ebitda_margin": 1.0,
+                "wacc": 1.0,
+                "terminal_growth": 1.0
+            }
+        },
+        "bear": {
+            "name": "Bear Case",
+            "color": "#EF4444",
+            "multipliers": {
+                "revenue_growth": 0.7,
+                "ebitda_margin": 0.85,
+                "wacc": 1.15,
+                "terminal_growth": 0.9
+            }
+        }
+    }
+}

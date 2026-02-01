@@ -1,0 +1,150 @@
+{
+    "version": "1.0.0",
+    "industries": {
+        "banking": {
+            "name": "Banking & Financial Services",
+            "key_metrics": [
+                "NIM",
+                "NPL Ratio",
+                "CAR",
+                "CASA Ratio",
+                "Cost to Income"
+            ],
+            "revenue_drivers": [
+                "Interest Income",
+                "Fee Income",
+                "Trading Income"
+            ],
+            "specific_prompts": {
+                "revenue": "Model net interest income using:\n- Average earning assets\n- Yield on advances\n- Cost of deposits\n- Fee income as % of assets",
+                "risk": "Include:\n- Provision for loan losses\n- NPL build-up\n- Capital adequacy calculations"
+            }
+        },
+        "technology": {
+            "name": "Technology / SaaS",
+            "key_metrics": [
+                "ARR",
+                "MRR",
+                "Churn Rate",
+                "LTV/CAC",
+                "Rule of 40"
+            ],
+            "revenue_drivers": [
+                "Subscription Revenue",
+                "Professional Services",
+                "Usage-based"
+            ],
+            "specific_prompts": {
+                "revenue": "Model SaaS revenue with:\n- New MRR from new customers\n- Expansion MRR\n- Churned MRR\n- Net Revenue Retention",
+                "unit_economics": "Calculate:\n- CAC payback period\n- LTV to CAC ratio\n- Gross margin per customer"
+            }
+        },
+        "manufacturing": {
+            "name": "Manufacturing / Industrial",
+            "key_metrics": [
+                "Capacity Utilization",
+                "Asset Turnover",
+                "Inventory Days"
+            ],
+            "revenue_drivers": [
+                "Volume",
+                "Price Realization",
+                "Product Mix"
+            ],
+            "specific_prompts": {
+                "revenue": "Model based on:\n- Installed capacity\n- Utilization rate\n- Price per unit\n- Product mix shift",
+                "costs": "Include:\n- Raw material as % of sales\n- Power & fuel\n- Labor productivity"
+            }
+        },
+        "fmcg": {
+            "name": "FMCG / Consumer Goods",
+            "key_metrics": [
+                "Volume Growth",
+                "Price Growth",
+                "Market Share",
+                "Distribution Reach"
+            ],
+            "revenue_drivers": [
+                "Volume",
+                "Pricing",
+                "Mix",
+                "New Products"
+            ],
+            "specific_prompts": {
+                "revenue": "Model with:\n- Volume growth by category\n- Price increases\n- Premiumization impact\n- New product launches",
+                "margins": "Track:\n- Gross margin by category\n- A&P spend efficiency\n- Distribution costs"
+            }
+        },
+        "pharma": {
+            "name": "Pharmaceuticals",
+            "key_metrics": [
+                "R&D as % Revenue",
+                "Patent Cliffs",
+                "Formulation Mix"
+            ],
+            "revenue_drivers": [
+                "Domestic",
+                "Export",
+                "API vs Formulation"
+            ],
+            "specific_prompts": {
+                "revenue": "Segment by:\n- Domestic branded\n- Generic exports\n- API sales\n- Patent expiry timeline",
+                "rd": "Model R&D:\n- Pipeline value\n- Probability of success\n- Time to market"
+            }
+        },
+        "power_utilities": {
+            "name": "Power & Utilities",
+            "key_metrics": [
+                "PLF",
+                "Heat Rate",
+                "T&D Losses",
+                "Regulated ROE"
+            ],
+            "revenue_drivers": [
+                "Capacity",
+                "Availability",
+                "Tariff"
+            ],
+            "specific_prompts": {
+                "revenue": "Calculate:\n- Fixed charges (capacity)\n- Variable charges (energy)\n- Incentive/penalty adjustments",
+                "regulatory": "Include:\n- Regulatory asset/liability\n- True-up adjustments\n- Fuel cost pass-through"
+            }
+        },
+        "real_estate": {
+            "name": "Real Estate Development",
+            "key_metrics": [
+                "Pre-sales",
+                "Collections",
+                "Project IRR",
+                "Land Bank"
+            ],
+            "revenue_drivers": [
+                "New Launches",
+                "Price Realization",
+                "Construction Progress"
+            ],
+            "specific_prompts": {
+                "revenue": "Use POCM:\n- Pre-sales velocity\n- Price escalation\n- Collection efficiency\n- Revenue recognition %",
+                "project": "Model each project:\n- Land cost\n- Construction cost\n- SG&A allocation\n- Project-level IRR"
+            }
+        },
+        "ecommerce": {
+            "name": "E-Commerce / Marketplace",
+            "key_metrics": [
+                "GMV",
+                "Take Rate",
+                "CAC",
+                "Order Frequency"
+            ],
+            "revenue_drivers": [
+                "GMV Growth",
+                "Take Rate",
+                "Advertising"
+            ],
+            "specific_prompts": {
+                "revenue": "Model:\n- GMV growth\n- Commission rates\n- Advertising revenue\n- Fulfillment services",
+                "unit_economics": "Track:\n- Contribution margin per order\n- Customer acquisition cost\n- Repeat purchase rate"
+            }
+        }
+    }
+}

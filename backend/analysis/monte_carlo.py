@@ -51,16 +51,17 @@ def run_monte_carlo_simulation(
     base_ev = base_valuation.get('enterprise_value', 0)
     base_equity = base_valuation.get('equity_value', 0)
     base_share_price = base_valuation.get('share_price', 0)
+    net_debt = base_valuation.get('net_debt', 0)
     
     if NUMPY_AVAILABLE:
         results = _run_numpy_simulation(
             base_assumptions, base_ev, base_equity, base_share_price,
-            ranges, num_simulations
+            net_debt, ranges, num_simulations
         )
     else:
         results = _run_python_simulation(
             base_assumptions, base_ev, base_equity, base_share_price,
-            ranges, num_simulations
+            net_debt, ranges, num_simulations
         )
     
     return results
@@ -68,7 +69,7 @@ def run_monte_carlo_simulation(
 
 def _run_numpy_simulation(
     base_assumptions: Dict, base_ev: float, base_equity: float,
-    base_share_price: float, ranges: Dict, num_simulations: int
+    base_share_price: float, net_debt: float, ranges: Dict, num_simulations: int
 ) -> Dict[str, Any]:
     """Run simulation using numpy for speed"""
     
@@ -103,7 +104,7 @@ def _run_numpy_simulation(
     
     # Simulate valuations
     simulated_ev = base_ev * ev_multiplier
-    simulated_equity = simulated_ev - base_valuation.get('net_debt', 0) if 'net_debt' in base_valuation else simulated_ev * (base_equity / base_ev)
+    simulated_equity = simulated_ev - net_debt if net_debt else simulated_ev * (base_equity / base_ev) if base_ev > 0 else simulated_ev
     simulated_share_price = base_share_price * (simulated_equity / base_equity) if base_equity > 0 else base_share_price
     
     # Calculate statistics
@@ -145,7 +146,7 @@ def _run_numpy_simulation(
 
 def _run_python_simulation(
     base_assumptions: Dict, base_ev: float, base_equity: float,
-    base_share_price: float, ranges: Dict, num_simulations: int
+    base_share_price: float, net_debt: float, ranges: Dict, num_simulations: int
 ) -> Dict[str, Any]:
     """Run simulation using pure Python"""
     
